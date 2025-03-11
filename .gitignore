@@ -1,5 +1,6 @@
 sample/output/*
-footprint_tools/__pycache__/*
+*/__pycache__/*
+*/*/__pycache__/*
 scrapy_footprint.ipynb
 .deprecated
 .require
