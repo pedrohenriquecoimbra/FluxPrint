@@ -1,0 +1,8 @@
+sample/output/*
+footprint_tools/__pycache__/*
+scrapy_footprint.ipynb
+.deprecated
+.require
+build
+dist
+*.egg-info
