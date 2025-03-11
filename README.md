@@ -23,7 +23,7 @@ A Python library for calculating and managing flux footprints using the Kljun et
 You can install the library using `pip`:
 
 ```bash
-pip install footprint-tools
+pip install footprint_toolkit
 ```
 
 ---
@@ -33,7 +33,7 @@ pip install footprint-tools
 ### 1. Calculate a Footprint
 
 ```python
-from footprint_tools.core import calculate_footprint
+from footprint_toolkit.core import calculate_footprint
 
 # Input data
 data = {
@@ -54,7 +54,7 @@ footprint = calculate_footprint(data, domain=[-100, 100, -100, 100], dx=10, dy=1
 ### 2. Save Footprint to NetCDF
 
 ```python
-from footprint_tools.io import write_to_netcdf
+from footprint_toolkit.io import write_to_netcdf
 
 # Save footprint to NetCDF
 write_to_netcdf(footprint, 'output.nc')
@@ -63,7 +63,7 @@ write_to_netcdf(footprint, 'output.nc')
 ### 3. Save Footprint to TIFF
 
 ```python
-from footprint_tools.io import write_to_tif
+from footprint_toolkit.io import write_to_tif
 
 # Save footprint to TIFF
 write_to_tif(footprint, 'output.tif', crs="EPSG:4326")
@@ -72,7 +72,7 @@ write_to_tif(footprint, 'output.tif', crs="EPSG:4326")
 ### 4. Aggregate Multiple Footprints
 
 ```python
-from footprint_tools.core import aggregate_footprints
+from footprint_toolkit.core import aggregate_footprints
 
 # List of footprints
 footprints = [footprint1, footprint2, footprint3]
@@ -84,7 +84,7 @@ climatological_footprint = aggregate_footprints(footprints)
 ### 5. Transform Coordinates
 
 ```python
-from footprint_tools.utils import transform_coordinates
+from footprint_toolkit.utils import transform_coordinates
 
 # Transform coordinates from WGS84 to UTM
 x, y = transform_coordinates(48.84422, 1.95191, crs_in="EPSG:4326", crs_out="EPSG:3035")
@@ -144,7 +144,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 For questions or feedback, please contact:
 - [Pedro Henrique Coimbra](mailto:pedro-henrique.herig-coimbra@inrae.fr)
-- [GitHub Issues](https://github.com/pedrohenriquecoimbra/footprint_tools/issues)
+- [GitHub Issues](https://github.com/pedrohenriquecoimbra/footprint_toolkit/issues)
 
 ---
 

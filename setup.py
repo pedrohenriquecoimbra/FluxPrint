@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 from setuptools import find_packages, setup
 
-from footprint_tools import version
+from footprint_toolkit import version
 
 setup(
-    name='footprint-tools',
+    name='footprint-toolkit',
     version=version.__version__,
-    url='https://github.com/pedrohenriquecoimbra/footprint_tools',
+    url='https://github.com/pedrohenriquecoimbra/footprint_toolkit',
     description=(
         "Python module to easily handle footprint outputs"
         "Written by pedrohenriquecoimbra"),
