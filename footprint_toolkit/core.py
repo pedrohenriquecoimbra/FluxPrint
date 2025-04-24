@@ -4,6 +4,7 @@ import copy
 import re
 import numpy as np
 import pandas as pd
+from scipy import signal as sg
 from pyproj import Transformer
 import xarray as xr
 import rasterio
@@ -162,7 +163,7 @@ def calculate_footprint(data=None, by=None, **kwargs):
     return ffp
 
 
-def aggregate_footprints(fclim_2d, dx, dy):
+def aggregate_footprints(fclim_2d, dx, dy, smooth_data=1):
     """
     Aggregate multiple footprints into a single climatological footprint.
     
@@ -182,6 +183,11 @@ def aggregate_footprints(fclim_2d, dx, dy):
         fclim_2d.shape) == 3, f"Footprint must be 3D (time, x, y), dimension passed was: {fclim_2d.shape}."
     #n_valid = len(fclim_2d)
     fclim_clim = dx*dy*np.nanmean(fclim_2d, axis=0)
+
+    if smooth_data is not None:
+        skernel = np.matrix('0.05 0.1 0.05; 0.1 0.4 0.1; 0.05 0.1 0.05')
+        fclim_2d = sg.convolve2d(fclim_2d, skernel, mode='same')
+        fclim_2d = sg.convolve2d(fclim_2d, skernel, mode='same')
     return fclim_clim
 
 
