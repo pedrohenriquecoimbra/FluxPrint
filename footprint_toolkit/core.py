@@ -126,8 +126,11 @@ def calculate_footprint(data=None, by=None, **kwargs):
     Returns:
         dict: Footprint data (x, y, fclim_2d, etc.).
     """
+    if isinstance(data, pd.DataFrame):
+        data = data.copy()
+    
     # Process inputs
-    inputs = process_footprint_inputs(data=data.copy(), keep_cols=[by] if isinstance(by, str) else [], **kwargs)
+    inputs = process_footprint_inputs(data=data, keep_cols=[by] if isinstance(by, str) else [], **kwargs)
 
     # Group data by a column
     group_calc = [('climatology', inputs)] if by is None else pd.DataFrame(inputs).groupby(by)
