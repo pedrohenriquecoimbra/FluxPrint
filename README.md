@@ -1,6 +1,8 @@
 # Footprint Tools
 
-A Python library for calculating and managing flux footprints using the Kljun et al. (2015) model. The library supports reading and writing footprint data in various formats, including pandas DataFrames, dictionaries, TIFF, and NetCDF.
+`FluxPrint` is an open-source Python package that implements state-of-the-art flux footprint models for eddy covariance data analysis. The toolkit provides implementations of commonly used footprint models, enabling researchers to compare the spatially-resolved fluxes with field measurements. Designed for interoperability with ecosystem flux datasets (e.g., FLUXNET), `FluxPrint` standardizes the framework around footprint calculations while offering flexibility for integrating new fooptrint models in the future. See Figure 1 for the conceptual scheme.
+
+![Figure 1. Conceptual scheme for FluxPrint.](misc/conceptual_scheme.png)
 
 ---
 
@@ -18,12 +20,21 @@ A Python library for calculating and managing flux footprints using the Kljun et
 
 ---
 
+## Why FluxPrint?
+
+- **For Remote Sensing Scientists**: Compare satellite-derived flux maps directly with flux tower footprints at matching spatial scales.
+- **For Ecosystem Researchers**: Quantify and visualize the spatial contribution of landscape components to flux observations.
+- **For Educators**: Demonstrate footprint theory with accessible visualization tools to support micrometeorology education.
+- **For the Community**: Open, transparent, and Python-native — FluxPrint promotes reproducibility and collaboration.
+
+---
+
 ## Installation
 
 You can install the library using `pip`:
 
 ```bash
-pip install footprint_toolkit
+pip install fluxprint
 ```
 
 ---
@@ -33,7 +44,7 @@ pip install footprint_toolkit
 ### 1. Calculate a Footprint
 
 ```python
-from footprint_toolkit.core import calculate_footprint
+from fluxprint.core import calculate_footprint
 
 # Input data
 data = {
@@ -54,7 +65,7 @@ footprint = calculate_footprint(data, domain=[-100, 100, -100, 100], dx=10, dy=1
 ### 2. Save Footprint to NetCDF
 
 ```python
-from footprint_toolkit.io import write_to_netcdf
+from fluxprint.io import write_to_netcdf
 
 # Save footprint to NetCDF
 write_to_netcdf(footprint, 'output.nc')
@@ -63,7 +74,7 @@ write_to_netcdf(footprint, 'output.nc')
 ### 3. Save Footprint to TIFF
 
 ```python
-from footprint_toolkit.io import write_to_tif
+from fluxprint.io import write_to_tif
 
 # Save footprint to TIFF
 write_to_tif(footprint, 'output.tif', crs="EPSG:4326")
@@ -72,7 +83,7 @@ write_to_tif(footprint, 'output.tif', crs="EPSG:4326")
 ### 4. Aggregate Multiple Footprints
 
 ```python
-from footprint_toolkit.core import aggregate_footprints
+from fluxprint.core import aggregate_footprints
 
 # List of footprints
 footprints = [footprint1, footprint2, footprint3]
@@ -84,7 +95,7 @@ climatological_footprint = aggregate_footprints(footprints)
 ### 5. Transform Coordinates
 
 ```python
-from footprint_toolkit.utils import transform_coordinates
+from fluxprint.utils import transform_coordinates
 
 # Transform coordinates from WGS84 to UTM
 x, y = transform_coordinates(48.84422, 1.95191, crs_in="EPSG:4326", crs_out="EPSG:3035")
@@ -129,7 +140,7 @@ Contributions are welcome! Please follow these steps:
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE.txt) file for details.
 
 ---
 
@@ -144,7 +155,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 For questions or feedback, please contact:
 - [Pedro Henrique Coimbra](mailto:pedro-henrique.herig-coimbra@inrae.fr)
-- [GitHub Issues](https://github.com/pedrohenriquecoimbra/footprint_toolkit/issues)
+- [GitHub Issues](https://github.com/pedrohenriquecoimbra/fluxprint/issues)
 
 ---
 

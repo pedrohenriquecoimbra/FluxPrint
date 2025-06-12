@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 from setuptools import find_packages, setup
 
-from footprint_toolkit import version
+from fluxprint import version
 
 setup(
-    name='footprint-toolkit',
+    name='FluxPrint',
     version=version.__version__,
     url='https://github.com/pedrohenriquecoimbra/footprint_toolkit',
     description=(
@@ -29,6 +29,9 @@ setup(
         'rasterio',
         'requests',
     ],
+    extras_require={
+        'icoscp': ['icoscp', 'icoscp_core'],
+    },
     # See http://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
         'Development Status :: 4 - Beta',

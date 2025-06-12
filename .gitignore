@@ -1,9 +1,12 @@
-sample/output/*
+.deprecated
 */__pycache__/*
 */*/__pycache__/*
-scrapy_footprint.ipynb
-.deprecated
-.require
 build
 dist
 *.egg-info
+sample/output/*
+misc/*.ppt
+private*
+sample/*
+model/Hsieh_et_al_2000.py
+model/Kormann_and_Meixner_2001.py

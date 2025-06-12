@@ -12,8 +12,9 @@ from zipfile import ZipFile
 from pyproj import Transformer
 from shapely import geometry
 import fiona
-from .core import convert_to_tif, convert_to_nc, convert_to_dict, get_contour
+from . import utils
 
+logger = logging.getLogger('fluxprint.io')
 
 def is_glob_path(path):
     # Regular expression to check for glob characters
@@ -47,15 +48,29 @@ def read_from_url(url=None, *args, **kwargs):
     """
     # Send a GET request to the URL
     response = requests.get(url)
+    success = 0
 
     # Check if the request was successful
     if response.status_code == 200:
         in_memory = BytesIO(response.content)
-        with ZipFile(in_memory, 'r') as zf:
-            data = pd.read_csv(
-                BytesIO(zf.read(zf.filelist[0])), *args, **kwargs)
+        if not success:
+            try:
+                with ZipFile(in_memory, 'r') as zf:
+                    data = pd.read_csv(
+                        BytesIO(zf.read(zf.filelist[0])), *args, **kwargs)
+                success = 1
+            except Exception as e:
+                logger.error(f"Failed to read url as csv: {e}")
+            pass
+        if not success:
+            try:
+                data = xr.open_dataset(in_memory)
+                success = 1
+            except Exception as e:
+                logger.error(f"Failed to read url as netcdf: {e}")
+                pass
     else:
-        print(f"Failed to download file: {response.status_code}")
+        logger.error(f"Failed to download file: {response.status_code}")
     return data
 
 
@@ -108,32 +123,43 @@ def write_to_file(data, path, **kwargs):
     """
     if isinstance(path, str):
         if path.endswith('.nc'):
-            # Convert data to NetCDF format if necessary
-            if not isinstance(data, (xr.Dataset, xr.DataArray)):
-                data = convert_to_nc(data, **kwargs)
-            # Write the data to the file
-            return data.to_netcdf(path, 'w')
+            return write_to_netcdf(data, path, **kwargs)
         elif path.endswith('.shp'):
-            if not isinstance(data, dict):
-                data = convert_to_dict(data)
-            # Write a new Shapefile
-            for d, footprint in data.items():
-                if 'rs' not in footprint.keys():
-                    footprint = get_contour(footprint, 10, 10, [i/10 for i in range(1, 10)])
-                dst_path = path.rsplit(
-                    '.', 1)[0] + f'{d}.' + path.rsplit('.', 1)[-1]
-                __write_to_shp__(dst_path, footprint, **kwargs)
-            return
+            return write_to_shapefile(data, path, **kwargs)
         elif path.endswith('.tif'):
-            # Convert data to a raster if necessary
-            if not isinstance(data, (rasterio.io.DatasetWriter, rasterio.io.DatasetReader)):
-                data = convert_to_tif(data, **kwargs)
-            # Write the data to the file
-            with rasterio.open(path, "w", **data.meta) as dest:
-                dest.write(data.read())
-            return
+            return write_to_raster(data, path, **kwargs)
         else:
             raise ValueError(f"Unsupported file format: {path}")
+    return
+
+def write_to_netcdf(data, path, **kwargs):
+    # Convert data to NetCDF format if necessary
+    if not isinstance(data, (xr.Dataset, xr.DataArray)):
+        data = utils.convert_to_nc(data, **kwargs)
+    # Write the data to the file
+    return data.to_netcdf(path, 'w')
+
+def write_to_shapefile(data, path, **kwargs):
+    from .core import get_contour
+    if not isinstance(data, dict):
+        data = utils.convert_to_dict(data)
+    # Write a new Shapefile
+    for d, footprint in data.items():
+        if 'rs' not in footprint.keys():
+            footprint = get_contour(
+                footprint, 10, 10, [i/10 for i in range(1, 10)])
+        dst_path = path.rsplit(
+            '.', 1)[0] + f'{d}.' + path.rsplit('.', 1)[-1]
+        __write_to_shp__(dst_path, footprint, **kwargs)
+    return
+
+def write_to_raster(data, path, **kwargs):
+    # Convert data to a raster if necessary
+    if not isinstance(data, (rasterio.io.DatasetWriter, rasterio.io.DatasetReader)):
+        data = utils.convert_to_tif(data, **kwargs)
+    # Write the data to the file
+    with rasterio.open(path, "w", **data.meta) as dest:
+        dest.write(data.read())
     return
 
 
