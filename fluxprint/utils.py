@@ -749,7 +749,7 @@ def get_colormap(index, total):
     colors = (base_color[0], base_color[1], base_color[2])
     return colors
 
-def plot_leaflet(*ncs, dst=None, labels=[]):
+def plot_leaflet(*ncs, dst=None, labels=[], editable=False):
     """
     Input
         dst='sample/output/footprint_map.html'
@@ -800,6 +800,8 @@ def plot_leaflet(*ncs, dst=None, labels=[]):
             colormap=lambda x: get_colormap(id, len(ncs)) + (x,)  # Red colormap
         ).add_to(m)
 
+    if editable:
+        return m
 
     # Add the LayerControl to the map
     folium.LayerControl().add_to(m)
