@@ -11,6 +11,7 @@ import xarray as xr
 from pyproj import Transformer  # for coordinate transformations
 import rasterio
 import matplotlib.pyplot as plt
+from scipy import signal as sg
 
 # local modules
 from .commons import update_nested_dict
@@ -182,6 +183,13 @@ def find_utm_epsg_from_lon_deprecated(lon: float, lat: float = None):
 
 def find_peak(array):
     return np.unravel_index(array.argmax(), array.shape)
+
+
+def smooth_data(data):
+    skernel = np.matrix('0.05 0.1 0.05; 0.1 0.4 0.1; 0.05 0.1 0.05')
+    data = sg.convolve2d(data, skernel, mode='same')
+    data = sg.convolve2d(data, skernel, mode='same')
+    return data
 
 def transform_crs(*xy, crs_in="EPSG:4326", crs_out="EPSG:3035"):
     transformer = Transformer.from_crs(crs_in, crs_out)
