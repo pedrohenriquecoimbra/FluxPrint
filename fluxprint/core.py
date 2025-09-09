@@ -42,7 +42,11 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
     # Define the required keys
     required_keys = ['zm', 'z0', 'ws', 'ustar',
                      'pblh', 'mo_length', 'v_sigma', 'wind_dir'] + keep_cols
-    aka_keys = {'wind_dir': ['wd', 'WD']}
+    aka_keys = {'wind_dir': ['wd', 'WD'],
+                'v_sigma': ['sigmav'],
+                'ustar': ['u*'],
+                'ws': ['umean'],
+                'mo_length': ['ol']}
     optional_keys = ['z0', 'ws'] + keep_cols
 
     # If data is provided, extract values from the DataFrame
@@ -114,6 +118,9 @@ def wrapper(*args, out_as='nc', dst='', precision=None, meta={}, **kwargs):
     ffp = utils.convert_to_nc(ffp, **meta)
     ffp = utils.center_footprint(ffp)
 
+    ffp = ffp.assign(ffp.mean(
+        'timestep').rename({'footprint': 'footprint_climatology'}))
+
     if precision:
         ffp['footprint'].data = (
             ffp.footprint.data*10**precision).astype(np.int16)
@@ -171,7 +178,7 @@ def calculate_footprint(data=None, by=None, model=model.kljun2015, query=None, *
                 this_group = this_group.to_dict(orient='list')
             
             input_variables = ['zm', 'z0', 'ws', 'ustar', 'pblh', 'mo_length', 'v_sigma', 
-                               'wind_dir', 'domain', 'dx', 'dy', 'rs', 'verbosity']
+                               'wind_dir', 'domain', 'dx', 'dy', 'rs', 'smooth_data', 'verbosity']
             
             this_input = {
                 'domain': [-500, 500, -500, 500],
@@ -238,6 +245,9 @@ def aggregate_footprints(fclim_2d, dx, dy, smooth_data=1):
 
 def get_contour(footprint, dx, dy, rs, verbosity=0):
     flag_err = 0
+
+    footprint = utils.convert_to_object(
+        footprint)
 
     # Handle rs
     if rs is not None:
