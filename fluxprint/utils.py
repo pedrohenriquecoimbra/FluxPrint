@@ -32,7 +32,7 @@ def convert_to_object(data, name=None):
     footprint = type('var_', (object,), {
         'x_2d': None, 'y_2d': None, 'fclim_2d': None,
         'dist_max': None, 'n': None, 'flag_err': None})
-    if isinstance(data, xr.Dataset):
+    if isinstance(data, (xr.Dataset, xr.DataArray)):
         # Convert xarray Dataset to dictionary
         # if len(data.footprint.dims) == 2:
         #     data = {name: data}
