@@ -42,7 +42,7 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
     # Define the required keys
     required_keys = ['zm', 'z0', 'umean', 'ustar',
                      'pblh', 'mo_length', 'v_sigma', 'wind_dir'] + keep_cols
-    aka_keys = {'wind_dir': ['wd', 'WD'],
+    aka_keys = {'wind_dir': ['wd'],
                 'v_sigma': ['sigmav'],
                 'ustar': ['u*'],
                 'umean': ['ws'],
@@ -70,8 +70,15 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
         # Use other names variables may be known for (e.g. wind direction, wind_dir, wd)
         for key in required_keys:
             for aka in aka_keys.get(key, []):
-                if aka in data.columns:
-                    inputs[key] = data[aka]
+                # Create a regex pattern to match the key case-insensitively
+                pattern = re.compile(f'^{aka}$', re.IGNORECASE)
+                # Find matching columns in the DataFrame, prioritizing exact matches
+                matching_columns = [col for col in data.columns if col == key] + [
+                    col for col in data.columns if pattern.match(col)]
+
+                # if aka in data.columns:
+                if matching_columns:
+                    inputs[key] = data[matching_columns[0]]
 
         # Check if the key is provided as a keyword argument
         for key in required_keys:
