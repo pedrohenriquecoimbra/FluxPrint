@@ -40,14 +40,14 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
         dict: A dictionary with the processed input values as lists.
     """
     # Define the required keys
-    required_keys = ['zm', 'z0', 'ws', 'ustar',
+    required_keys = ['zm', 'z0', 'umean', 'ustar',
                      'pblh', 'mo_length', 'v_sigma', 'wind_dir'] + keep_cols
     aka_keys = {'wind_dir': ['wd', 'WD'],
                 'v_sigma': ['sigmav'],
                 'ustar': ['u*'],
-                'ws': ['umean'],
+                'umean': ['ws'],
                 'mo_length': ['ol']}
-    optional_keys = ['z0', 'ws'] + keep_cols
+    optional_keys = ['z0', 'umean'] + keep_cols
 
     # If data is provided, extract values from the DataFrame
     if data is not None and isinstance(data, pd.DataFrame):
@@ -177,7 +177,7 @@ def calculate_footprint(data=None, by=None, model=model.kljun2015, query=None, *
             if isinstance(this_group, pd.DataFrame):
                 this_group = this_group.to_dict(orient='list')
             
-            input_variables = ['zm', 'z0', 'ws', 'ustar', 'pblh', 'mo_length', 'v_sigma', 
+            input_variables = ['zm', 'z0', 'umean', 'ustar', 'pblh', 'mo_length', 'v_sigma',
                                'wind_dir', 'domain', 'dx', 'dy', 'rs', 'smooth_data', 'verbosity']
             
             this_input = {
