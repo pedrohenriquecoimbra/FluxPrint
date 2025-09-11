@@ -4,7 +4,7 @@
 build
 dist
 *.egg-info
-misc/*.ppt
+assets/*.ppt
 private*
 model/Hsieh_et_al_2000.py
 model/Kormann_and_Meixner_2001.py

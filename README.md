@@ -3,8 +3,8 @@
 `FluxPrint` is an open-source Python package that implements state-of-the-art flux footprint models for eddy covariance data analysis. The toolkit provides implementations of commonly used footprint models, enabling researchers to compare the spatially-resolved fluxes with field measurements. Designed for interoperability with ecosystem flux datasets (e.g., FLUXNET), `FluxPrint` standardizes the framework around footprint calculations while offering flexibility for integrating new fooptrint models in the future. See Figure 1 for the conceptual scheme.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="misc/conceptual_scheme_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="misc/conceptual_scheme.png">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/conceptual_scheme_dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/conceptual_scheme.png">
   <img alt="Shows an illustrated sun in light mode and a moon with stars in dark mode." src="https://user-images.githubusercontent.com/25423296/163456779-a8556205-d0a5-45e2-ac17-42d089e3c3f8.png" height="200px">
   <figcaption>Figure 1. Conceptual scheme for FluxPrint.</figcaption>
 </picture>
