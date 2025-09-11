@@ -24,11 +24,12 @@ from . import utils
 from . import io
 from . import template
 from . import exceptions
+from . import micrometeorology
 
 logger = logging.getLogger('fluxprint.core')
 
 
-def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
+def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables=True, **kwargs):
     """
     Process input values for footprint calculation.
 
@@ -47,7 +48,12 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
                 'ustar': ['u*'],
                 'umean': ['ws'],
                 'mo_length': ['ol']}
+    core_keys = ['zm', 'umean', 'wind_dir']
     optional_keys = ['z0', 'umean'] + keep_cols
+    # optional_keys = [] + keep_cols
+
+    # Drop full nan columns
+    data = data.dropna(axis=1, how='all')
 
     # If data is provided, extract values from the DataFrame
     if data is not None and isinstance(data, pd.DataFrame):
@@ -64,6 +70,7 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
                 col for col in data.columns if pattern.match(col)]
             
             if matching_columns:
+                logger.debug(f'matching_columns: {matching_columns}')
                 # Use the first matching column
                 inputs[key] = data[matching_columns[0]].tolist()
 
@@ -78,11 +85,13 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
 
                 # if aka in data.columns:
                 if matching_columns:
+                    logger.debug(f'aka: {matching_columns[0]}')
                     inputs[key] = data[matching_columns[0]]
 
         # Check if the key is provided as a keyword argument
         for key in required_keys:
             if key in kwargs:
+                logger.debug(f'kwargs {key}')
                 inputs[key] = kwargs[key]
             
     elif data is not None and isinstance(data, dict):
@@ -93,10 +102,21 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
         # If no DataFrame is provided, use kwargs
         inputs = kwargs
 
-    # Check if all required keys are present in the inputs
-    missing_keys = [key for key in required_keys if key not in inputs and key not in optional_keys]
+    # Check if all core keys are present in the inputs
+    missing_keys = [key for key in core_keys if key not in inputs]
     if missing_keys:
         raise ValueError(f"Missing required inputs: {missing_keys}")
+        
+    # Check if all required keys are present in the inputs
+    missing_keys = [
+        key for key in required_keys if key not in inputs and key not in optional_keys]
+    logger.debug(f'missing_keys: {missing_keys}, {inputs.keys()}')
+    if missing_keys:
+        if estimate_missing_variables:
+            for key in missing_keys:
+                inputs[key] = micrometeorology.caller(inputs, key)
+        else:
+            raise ValueError(f"Missing required inputs: {missing_keys}")
     
     # Get the maximum length of the inputs
     max_len_inputs = max(len(v) if isinstance(
@@ -104,12 +124,15 @@ def process_footprint_inputs(data=None, keep_cols=[], **kwargs):
 
     # Ensure all values are lists
     for key in required_keys:
+        if key not in inputs:
+            continue
         value = inputs[key]
         if isinstance(value, pd.Series):
             inputs[key] = value.tolist()
         elif not isinstance(value, (list, np.ndarray)):
             inputs[key] = [value]*max_len_inputs
 
+    logger.debug(f'inputs: {inputs}')
     return inputs
 
 
