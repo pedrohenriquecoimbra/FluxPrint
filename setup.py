@@ -15,8 +15,7 @@ setup(
     author='Pedro Henrique Coimbra',
     author_email='pedro-henrique.herig-coimbra@inrae.fr',
     keywords="footprint, flux, eddy covariance, EC",
-    license='MIT',
-    platforms=['any'],
+    license='EUPL-1.2',    platforms=['any'],
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
