@@ -385,7 +385,7 @@ def calc_ffp_climatology(zm=None, z0=None, umean=None, pblh=None, mo_length=None
 
 def FFP(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None, ustar=None,
         wind_dir=None, rs=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], rslayer=0,
-        nx=1000, crop=False, **kwargs):
+        nx=1000, crop=False, verbosity=1, **kwargs):
     """
     Derive a flux footprint estimate based on the simple parameterisation FFP
     See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015: 
@@ -675,7 +675,179 @@ def FFP(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None, ustar=None,
     if rs is not None:
         return {'x_ci_max': x_ci_max, 'x_ci': x_ci, 'f_ci': f_ci,
                 'x_2d': x_2d, 'y_2d': y_2d, 'f_2d': f_2d,
-                'rs': rs, 'fr': frs, 'xr': xrs, 'yr': yrs, 'flag_err': flag_err}
+                'rs': rs, #'fr': frs, 
+                'xr': xrs, 'yr': yrs, 'flag_err': flag_err}
     else:
         return {'x_ci_max': x_ci_max, 'x_ci': x_ci, 'f_ci': f_ci,
                 'x_2d': x_2d, 'y_2d': y_2d, 'f_2d': f_2d, 'flag_err': flag_err}
+
+
+def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None, ustar=None,
+                      nx=1000, **kwargs):
+    """
+    Derive a flux footprint estimate based on the simple parameterisation FFP
+    See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015: 
+    The simple two-dimensional parameterisation for Flux Footprint Predictions FFP.
+    Geosci. Model Dev. 8, 3695-3713, doi:10.5194/gmd-8-3695-2015, for details.
+    contact: natascha.kljun@cec.lu.se
+
+    FFP Input
+    zm     = Measurement height above displacement height (i.e. z-d) [m]
+    z0     = Roughness length [m]; enter None if not known 
+    umean  = Mean wind speed at zm [m/s]; enter None if not known 
+             Either z0 or umean is required. If both are given,
+             z0 is selected to calculate the footprint
+    h      = Boundary layer height [m]
+    ol     = Obukhov length [m]
+    sigmav = standard deviation of lateral velocity fluctuations [ms-1]
+	ustar  = friction velocity [ms-1]
+
+    optional inputs:
+    nx       = Integer scalar defining the number of grid elements of the scaled footprint.
+               Large nx results in higher spatial resolution and higher computing time.
+               Default is 1000, nx must be >=600.
+ 
+    FFP output
+    x_ci_max = x location of footprint peak (distance from measurement) [m]
+    x_ci	 = x array of crosswind integrated footprint [m]
+    f_ci	 = array with footprint function values of crosswind integrated footprint [m-1] 
+    x_2d	 = x-grid of 2-dimensional footprint [m], rotated if wind_dir is provided
+    y_2d	 = y-grid of 2-dimensional footprint [m], rotated if wind_dir is provided
+    f_2d	 = footprint function values of 2-dimensional footprint [m-2]
+    rs       = percentage of footprint as in input, if provided
+    fr       = footprint value at r, if r is provided
+    xr       = x-array for contour line of r, if r is provided
+    yr       = y-array for contour line of r, if r is provided
+    flag_err = 0 if no error, 1 in case of error
+
+    created: 15 April 2015 natascha kljun
+    translated to python, December 2015 Gerardo Fratini, LI-COR Biosciences Inc.
+    version: 1.42
+    last change: 11/12/2019 Gerardo Fratini, ported to Python 3.x
+    Copyright (C) 2015 - 2023 Natascha Kljun
+    """
+
+    import numpy as np
+    import sys
+    import numbers
+
+    # ===========================================================================
+    # Get kwargs
+
+    # ===========================================================================
+    # Input check
+    flag_err = 0
+
+    # Check existence of required input pars
+    if None in [zm, h, ol, sigmav, ustar] or (z0 is None and umean is None):
+        raise_ffp_exception(1)
+
+    # Check passed values
+    if zm <= 0.:
+        raise_ffp_exception(2)
+    if z0 is not None and umean is None and z0 <= 0.:
+        raise_ffp_exception(3)
+    if h <= 10.:
+        raise_ffp_exception(4)
+    if zm > h:
+        raise_ffp_exception(5)
+    if z0 is not None and umean is None and zm <= 12.5*z0:
+        raise_ffp_exception(12)
+    if float(zm)/ol <= -15.5:
+        raise_ffp_exception(7)
+    if sigmav <= 0:
+        raise_ffp_exception(8)
+    if ustar <= 0.1:
+        raise_ffp_exception(9)
+    if nx < 600:
+        raise_ffp_exception(11)
+
+    # Resolve ambiguity if both z0 and umean are passed (defaults to using z0)
+    if None not in [z0, umean]:
+        raise_ffp_exception(13)
+
+    # ===========================================================================
+    # Model parameters
+    a = 1.4524
+    b = -1.9914
+    c = 1.4622
+    d = 0.1359
+    ac = 2.17
+    bc = 1.66
+    cc = 20.0
+
+    xstar_end = 30
+    oln = 5000  # limit to L for neutral scaling
+    k = 0.4  # von Karman
+
+    # ===========================================================================
+    # Scaled X* for crosswind integrated footprint
+    xstar_ci_param = np.linspace(d, xstar_end, nx+2)
+    xstar_ci_param = xstar_ci_param[1:]
+
+    # Crosswind integrated scaled F*
+    fstar_ci_param = a * (xstar_ci_param-d)**b * \
+        np.exp(-c / (xstar_ci_param-d))
+    ind_notnan = ~np.isnan(fstar_ci_param)
+    fstar_ci_param = fstar_ci_param[ind_notnan]
+    xstar_ci_param = xstar_ci_param[ind_notnan]
+
+    # Scaled sig_y*
+    sigystar_param = ac * \
+        np.sqrt(bc * xstar_ci_param**2 / (1 + cc * xstar_ci_param))
+
+    # ===========================================================================
+    # Real scale x and f_ci
+    if z0 is not None:
+        # Use z0
+        if ol <= 0 or ol >= oln:
+            xx = (1 - 19.0 * zm/ol)**0.25
+            psi_f = np.log((1 + xx**2) / 2.) + 2. * \
+                np.log((1 + xx) / 2.) - 2. * np.arctan(xx) + np.pi/2
+        elif ol > 0 and ol < oln:
+            psi_f = -5.3 * zm / ol
+
+        x = xstar_ci_param * zm / (1. - (zm / h)) * (np.log(zm / z0) - psi_f)
+        if np.log(zm / z0) - psi_f > 0:
+            x_ci = x
+            f_ci = fstar_ci_param / zm * \
+                (1. - (zm / h)) / (np.log(zm / z0) - psi_f)
+        else:
+            x_ci_max, x_ci, f_ci, f_1d = None
+            flag_err = 1
+    else:
+        # Use umean if z0 not available
+        x = xstar_ci_param * zm / (1. - zm / h) * (umean / ustar * k)
+        if umean / ustar > 0:
+            x_ci = x
+            f_ci = fstar_ci_param / zm * (1. - zm / h) / (umean / ustar * k)
+        else:
+            x_ci_max, x_ci, f_ci, f_1d = None
+            flag_err = 1
+
+    # Maximum location of influence (peak location)
+    xstarmax = -c / b + d
+    if z0 is not None:
+        x_ci_max = xstarmax * zm / (1. - (zm / h)) * (np.log(zm / z0) - psi_f)
+    else:
+        x_ci_max = xstarmax * zm / (1. - (zm / h)) * (umean / ustar * k)
+
+    # Real scale sig_y
+    if abs(ol) > oln:
+        ol = -1E6
+    if ol <= 0:  # convective
+        scale_const = 1E-5 * abs(zm / ol)**(-1) + 0.80
+    elif ol > 0:  # stable
+        scale_const = 1E-5 * abs(zm / ol)**(-1) + 0.55
+    if scale_const > 1:
+        scale_const = 1.0
+    sigy = sigystar_param / scale_const * zm * sigmav / ustar
+    sigy[sigy < 0] = np.nan
+
+    f_1d = np.abs(f_ci * 1 / (np.sqrt(2 * np.pi) * sigy))
+
+    return {'x_ci_max': x_ci_max, 'x_ci': x_ci, 'f_ci': f_ci,
+            'x': x, 'f': f_1d, 'flag_err': flag_err,
+            'sigy': sigy,
+            'f_1d': f_1d, 'fstar_ci_param': fstar_ci_param
+            }
