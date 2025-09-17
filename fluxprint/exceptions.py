@@ -115,7 +115,7 @@ def check_ffp_inputs(ustar, sigmav, h, ol, wind_dir, zm, z0, umean, rslayer, ver
     return True
 
 
-def raise_ffp_exception(code, verbosity):
+def raise_ffp_exception(code, verbosity=1):
     '''Raise exception or prints message according to specified code'''
 
     ex = [it for it in exceptions if it['code'] == code][0]
