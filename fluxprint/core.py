@@ -44,10 +44,11 @@ def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables
     required_keys = ['zm', 'z0', 'umean', 'ustar',
                      'pblh', 'mo_length', 'v_sigma', 'wind_dir'] + keep_cols
     aka_keys = {'wind_dir': ['wd'],
-                'v_sigma': ['sigmav'],
+                'v_sigma': ['sigmav', 'v_sd'],
                 'ustar': ['u*'],
-                'umean': ['ws'],
-                'mo_length': ['ol']}
+                'umean': ['ws', 'ws_f'],
+                'mo_length': ['ol'],
+                'pblh': ['blh']}
     core_keys = ['zm', 'umean', 'wind_dir']
     optional_keys = ['z0', 'umean'] + keep_cols
     # optional_keys = [] + keep_cols
