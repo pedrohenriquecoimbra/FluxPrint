@@ -25,16 +25,22 @@ def compute_z0(umean, ustar, zm, psi_f=None, ol=None, k=0.4):
 
 def compute_psi_f(zm, ol):
     """
-    Not yet tested
-    From Kljun.py"""
+    From Kljun.py
+    """
     oln = 5000  # limit to L for neutral scaling
-    # Use z0
-    if ol <= 0 or ol >= oln:
-        xx = (1 - 19.0 * zm/ol)**0.25
-        psi_f = np.log((1 + xx**2) / 2.) + 2. * \
-                        np.log((1 + xx) / 2.) - 2. * np.arctan(xx) + np.pi/2
-    elif ol > 0 and ol < oln:
-        psi_f = -5.3 * zm / ol
+    xx = (1 - 19.0 * zm/ol)**0.25
+    psi_f = np.zeros_like(xx) * np.nan
+    
+    # For unstable or neutral conditions (ol <= 0 or ol >= oln)
+    psi_f = np.where((ol <= 0) | (ol >= oln),
+                     np.log((1 + xx**2) / 2.) + 2. *
+                     np.log((1 + xx) / 2.) - 2. * np.arctan(xx) + np.pi/2,
+                     psi_f)
+
+    # For stable conditions (0 < ol < oln)
+    psi_f = np.where((ol > 0) & (ol < oln),
+                     -5.3 * zm / ol,
+                     psi_f)
     return psi_f
 
 
