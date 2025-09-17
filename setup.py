@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 from fluxprint import version
 
 setup(
-    name='FluxPrint',
+    name='fluxprint',
     version=version.__version__,
     url='https://github.com/pedrohenriquecoimbra/footprint_toolkit',
     description=(
@@ -20,6 +20,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'numpy',
+        'scipy',
         'pandas',
         'fiona',
         'shapely',
@@ -27,6 +28,7 @@ setup(
         'xarray',
         'rasterio',
         'requests',
+        'matplotlib',
     ],
     extras_require={
         'icoscp': ['icoscp', 'icoscp_core'],
