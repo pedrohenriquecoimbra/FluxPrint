@@ -682,7 +682,7 @@ def FFP(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None, ustar=None,
                 'x_2d': x_2d, 'y_2d': y_2d, 'f_2d': f_2d, 'flag_err': flag_err}
 
 
-def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None, ustar=None,
+def calc_footprint_1d(zm=None, z0=None, umean=None, pblh=None, mo_length=None, v_sigma=None, ustar=None,
                       nx=1000, **kwargs):
     """
     Derive a flux footprint estimate based on the simple parameterisation FFP
@@ -697,9 +697,9 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None
     umean  = Mean wind speed at zm [m/s]; enter None if not known 
              Either z0 or umean is required. If both are given,
              z0 is selected to calculate the footprint
-    h      = Boundary layer height [m]
-    ol     = Obukhov length [m]
-    sigmav = standard deviation of lateral velocity fluctuations [ms-1]
+    pblh      = Boundary layer height [m]
+    mo_length     = Obukhov length [m]
+    v_sigma = standard deviation of lateral velocity fluctuations [ms-1]
 	ustar  = friction velocity [ms-1]
 
     optional inputs:
@@ -739,7 +739,7 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None
     flag_err = 0
 
     # Check existence of required input pars
-    if None in [zm, h, ol, sigmav, ustar] or (z0 is None and umean is None):
+    if None in [zm, pblh, mo_length, v_sigma, ustar] or (z0 is None and umean is None):
         raise_ffp_exception(1)
 
     # Check passed values
@@ -747,15 +747,15 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None
         raise_ffp_exception(2)
     if z0 is not None and umean is None and z0 <= 0.:
         raise_ffp_exception(3)
-    if h <= 10.:
+    if pblh <= 10.:
         raise_ffp_exception(4)
-    if zm > h:
+    if zm > pblh:
         raise_ffp_exception(5)
     if z0 is not None and umean is None and zm <= 12.5*z0:
         raise_ffp_exception(12)
-    if float(zm)/ol <= -15.5:
+    if float(zm)/mo_length <= -15.5:
         raise_ffp_exception(7)
-    if sigmav <= 0:
+    if v_sigma <= 0:
         raise_ffp_exception(8)
     if ustar <= 0.1:
         raise_ffp_exception(9)
@@ -800,27 +800,27 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None
     # Real scale x and f_ci
     if z0 is not None:
         # Use z0
-        if ol <= 0 or ol >= oln:
-            xx = (1 - 19.0 * zm/ol)**0.25
+        if mo_length <= 0 or mo_length >= oln:
+            xx = (1 - 19.0 * zm/mo_length)**0.25
             psi_f = np.log((1 + xx**2) / 2.) + 2. * \
                 np.log((1 + xx) / 2.) - 2. * np.arctan(xx) + np.pi/2
-        elif ol > 0 and ol < oln:
-            psi_f = -5.3 * zm / ol
+        elif mo_length > 0 and mo_length < oln:
+            psi_f = -5.3 * zm / mo_length
 
-        x = xstar_ci_param * zm / (1. - (zm / h)) * (np.log(zm / z0) - psi_f)
+        x = xstar_ci_param * zm / (1. - (zm / pblh)) * (np.log(zm / z0) - psi_f)
         if np.log(zm / z0) - psi_f > 0:
             x_ci = x
             f_ci = fstar_ci_param / zm * \
-                (1. - (zm / h)) / (np.log(zm / z0) - psi_f)
+                (1. - (zm / pblh)) / (np.log(zm / z0) - psi_f)
         else:
             x_ci_max, x_ci, f_ci, f_1d = None
             flag_err = 1
     else:
         # Use umean if z0 not available
-        x = xstar_ci_param * zm / (1. - zm / h) * (umean / ustar * k)
+        x = xstar_ci_param * zm / (1. - zm / pblh) * (umean / ustar * k)
         if umean / ustar > 0:
             x_ci = x
-            f_ci = fstar_ci_param / zm * (1. - zm / h) / (umean / ustar * k)
+            f_ci = fstar_ci_param / zm * (1. - zm / pblh) / (umean / ustar * k)
         else:
             x_ci_max, x_ci, f_ci, f_1d = None
             flag_err = 1
@@ -828,20 +828,20 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, h=None, ol=None, sigmav=None
     # Maximum location of influence (peak location)
     xstarmax = -c / b + d
     if z0 is not None:
-        x_ci_max = xstarmax * zm / (1. - (zm / h)) * (np.log(zm / z0) - psi_f)
+        x_ci_max = xstarmax * zm / (1. - (zm / pblh)) * (np.log(zm / z0) - psi_f)
     else:
-        x_ci_max = xstarmax * zm / (1. - (zm / h)) * (umean / ustar * k)
+        x_ci_max = xstarmax * zm / (1. - (zm / pblh)) * (umean / ustar * k)
 
     # Real scale sig_y
-    if abs(ol) > oln:
-        ol = -1E6
-    if ol <= 0:  # convective
-        scale_const = 1E-5 * abs(zm / ol)**(-1) + 0.80
-    elif ol > 0:  # stable
-        scale_const = 1E-5 * abs(zm / ol)**(-1) + 0.55
+    if abs(mo_length) > oln:
+        mo_length = -1E6
+    if mo_length <= 0:  # convective
+        scale_const = 1E-5 * abs(zm / mo_length)**(-1) + 0.80
+    elif mo_length > 0:  # stable
+        scale_const = 1E-5 * abs(zm / mo_length)**(-1) + 0.55
     if scale_const > 1:
         scale_const = 1.0
-    sigy = sigystar_param / scale_const * zm * sigmav / ustar
+    sigy = sigystar_param / scale_const * zm * v_sigma / ustar
     sigy[sigy < 0] = np.nan
 
     f_1d = np.abs(f_ci * 1 / (np.sqrt(2 * np.pi) * sigy))
