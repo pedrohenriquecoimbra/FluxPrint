@@ -53,11 +53,12 @@ def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables
     optional_keys = ['z0', 'umean'] + keep_cols
     # optional_keys = [] + keep_cols
 
-    # Drop full nan columns
-    data = data.dropna(axis=1, how='all')
 
     # If data is provided, extract values from the DataFrame
     if data is not None and isinstance(data, pd.DataFrame):
+        # Drop full nan columns
+        data = data.dropna(axis=1, how='all')
+
         if not isinstance(data, pd.DataFrame):
             raise ValueError("`data` must be a pandas DataFrame.")
 
@@ -97,6 +98,8 @@ def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables
             
     elif data is not None and isinstance(data, dict):
         # If DataFrame provided is a dict like kwargs
+        data = {k: v for k, v in data.items() if v not in (None, '', [], {}, ())}
+        
         inputs = data
         inputs.update(kwargs)
     else:
