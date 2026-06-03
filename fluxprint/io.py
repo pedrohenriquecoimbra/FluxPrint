@@ -37,41 +37,46 @@ def read_handler(path, *args, **kwargs):
 def read_from_url(url=None, *args, **kwargs):
     """
     Read data from a URL.
-    
+
     Parameters:
         url (str): URL to read data from.
-        *args: Additional arguments to pass to the read
-        **kwargs: Additional keyword arguments to pass to the read
-            
+        *args: Additional positional arguments forwarded to ``pd.read_csv``.
+        **kwargs: Additional keyword arguments forwarded to ``pd.read_csv``.
+
     Returns:
-        pd.DataFrame: Data read from the URL.
+        pd.DataFrame | xr.Dataset: Data read from the URL.
+
+    Raises:
+        OSError: If the download fails (non-200 response).
+        ValueError: If the payload cannot be parsed as a zipped CSV or NetCDF.
     """
     # Send a GET request to the URL
     response = requests.get(url)
-    success = 0
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        in_memory = BytesIO(response.content)
-        if not success:
-            try:
-                with ZipFile(in_memory, 'r') as zf:
-                    data = pd.read_csv(
-                        BytesIO(zf.read(zf.filelist[0])), *args, **kwargs)
-                success = 1
-            except Exception as e:
-                logger.error(f"Failed to read url as csv: {e}")
-            pass
-        if not success:
-            try:
-                data = xr.open_dataset(in_memory)
-                success = 1
-            except Exception as e:
-                logger.error(f"Failed to read url as netcdf: {e}")
-                pass
-    else:
-        logger.error(f"Failed to download file: {response.status_code}")
-    return data
+    if response.status_code != 200:
+        raise OSError(
+            f"Failed to download {url!r}: HTTP {response.status_code}.")
+
+    in_memory = BytesIO(response.content)
+    errors = []
+
+    # Try a zipped CSV first, then fall back to NetCDF.
+    try:
+        with ZipFile(in_memory, 'r') as zf:
+            return pd.read_csv(
+                BytesIO(zf.read(zf.filelist[0])), *args, **kwargs)
+    except Exception as exc:
+        errors.append(f"zip+csv: {exc}")
+        in_memory.seek(0)
+
+    try:
+        return xr.open_dataset(in_memory)
+    except Exception as exc:
+        errors.append(f"netcdf: {exc}")
+
+    raise ValueError(
+        f"Could not parse {url!r} as zipped CSV or NetCDF. "
+        f"Tried: {'; '.join(errors)}")
 
 
 def read_from_file(path, *args, memory=True, **kwargs):
@@ -182,3 +187,15 @@ def __write_to_shp__(dst_path, footprint, schema: dict={}, **kwargs):
                     'properties': {'rs': int(k*100), 'fr': footprint['fr'][order[k]]},
                 })
     return
+
+
+__all__ = [
+    "read_handler",
+    "read_from_url",
+    "read_from_file",
+    "write_to_file",
+    "write_to_netcdf",
+    "write_to_shapefile",
+    "write_to_raster",
+    "is_glob_path",
+]

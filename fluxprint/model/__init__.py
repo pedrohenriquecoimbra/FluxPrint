@@ -1,5 +1,12 @@
+from .base import (
+    MODELS, FootprintModel, register_model, get_model, available_models)
 from . import Kljun_et_al_2015 as kljun2015
 from . import Kljun_et_al_2015_original as kljun2015_o
+
+__all__ = [
+    "MODELS", "FootprintModel", "register_model", "get_model",
+    "available_models", "kljun2015",
+]
 # from . import Hsieh_et_al_2000 as hsieh2000
 # from . import Kormann_and_Meixner_2001 as km2001
 # try:

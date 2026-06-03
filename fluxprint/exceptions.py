@@ -91,13 +91,15 @@ def check_ffp_inputs(ustar, sigmav, h, ol, wind_dir, zm, z0, umean, rslayer, ver
     if zm > h :
         raise_ffp_exception(5, verbosity)
         return False
-    if z0 is not None and umean is None and zm <= 12.5*z0:
-        if rslayer is 1:
+    if z0 is not None and umean is None and zm <= 12.5 * z0:
+        if rslayer == 1:
             raise_ffp_exception(6, verbosity)
         else:
             raise_ffp_exception(20, verbosity)
             return False
-    if float(zm)/ol <= -15.5:
+    # ol == 0 is unphysical and would raise ZeroDivisionError; treat it like the
+    # too-unstable case (zm/ol <= -15.5) and reject the record.
+    if ol == 0 or float(zm) / ol <= -15.5:
         raise_ffp_exception(7, verbosity)
         return False
     if sigmav <= 0:

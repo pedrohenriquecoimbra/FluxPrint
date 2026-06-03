@@ -6,6 +6,7 @@ import numbers
 import sys
 import os
 import logging
+from datetime import datetime
 
 # 3rd party modules
 import numpy as np
@@ -18,8 +19,8 @@ import rasterio
 import matplotlib.pyplot as plt
 
 # local modules
-from .commons import start_logging, update_nested_dict
-from . import model
+from .footprint import Footprint, FootprintSeries
+from .model import get_model
 from . import utils
 from . import io
 from . import template
@@ -29,7 +30,8 @@ from . import micrometeorology
 logger = logging.getLogger('fluxprint.core')
 
 
-def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables=True, **kwargs):
+def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables=True,
+                             fill_all=True, **kwargs):
     """
     Process input values for footprint calculation.
 
@@ -106,21 +108,31 @@ def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables
         # If no DataFrame is provided, use kwargs
         inputs = kwargs
 
-    # Check if all core keys are present in the inputs
-    missing_keys = [key for key in core_keys if key not in inputs]
+    # Estimate missing inputs when enabled, in dependency order. `fill_all` also
+    # allows crude constant fallbacks (e.g. zm, umean, wind_dir) and the rough
+    # ustar estimate; with fill_all=False only physical estimates are applied.
+    if estimate_missing_variables:
+        for key in ('zm', 'umean', 'wind_dir', 'pblh', 'ustar', 'z0',
+                    'mo_length', 'v_sigma'):
+            if inputs.get(key) is not None:
+                continue
+            value = micrometeorology.filler(inputs, key, fill_all=fill_all)
+            if value is not None:
+                inputs[key] = value
+
+    # Core inputs are mandatory (after any estimation).
+    missing_keys = [key for key in core_keys if inputs.get(key) is None]
     if missing_keys:
-        raise ValueError(f"Missing required inputs: {missing_keys}")
-        
-    # Check if all required keys are present in the inputs
-    missing_keys = [
-        key for key in required_keys if key not in inputs and key not in optional_keys]
-    logger.debug(f'missing_keys: {missing_keys}, {inputs.keys()}')
+        raise ValueError(
+            f"Missing required inputs: {missing_keys}. Provide them, or enable "
+            f"approximation (estimate_missing_variables=True; set fill_all=True "
+            f"for crude constant fallbacks).")
+
+    # Remaining required (non-optional) inputs must also be present.
+    missing_keys = [key for key in required_keys
+                    if key not in optional_keys and inputs.get(key) is None]
     if missing_keys:
-        if estimate_missing_variables:
-            for key in missing_keys:
-                inputs[key] = micrometeorology.caller(inputs, key)
-        else:
-            raise ValueError(f"Missing required inputs: {missing_keys}")
+        raise ValueError(f"Missing required inputs: {missing_keys}.")
     
     # Get the maximum length of the inputs
     max_len_inputs = max(len(v) if isinstance(
@@ -140,112 +152,205 @@ def process_footprint_inputs(data=None, keep_cols=[], estimate_missing_variables
     return inputs
 
 
-def wrapper(*args, out_as='nc', dst='', precision=None, meta={}, **kwargs):
-    if dst:
-        start_logging(os.path.dirname(dst))
-
-    meta = update_nested_dict(meta,
-                              {'__global__': {'Model_Used': kwargs.get('model', model.kljun2015).__name__},
-                               'footprint': {'10^?': precision}})
-
-    ffp = calculate_footprint(*args, **kwargs)
-    ffp = utils.convert_to_nc(ffp, **meta)
-    ffp = utils.center_footprint(ffp)
-
-    ffp = ffp.assign(ffp.mean(
-        'timestep').rename({'footprint': 'footprint_climatology'}))
-
-    if precision:
-        ffp['footprint'].data = (
-            ffp.footprint.data*10**precision).astype(np.int16)
-    
-    if out_as in ['object']:
-        ffp = utils.convert_to_object(ffp)#*args, **kwargs)
-    elif out_as in ['netcdf', 'nc']:
-        pass
-        # ffp = utils.convert_to_nc(ffp)
-    elif out_as in ['raster', 'tif', 'tiff']:
-        ffp = utils.convert_to_tif(ffp)
-    else:
-        logger.info(f'Parameter `out_as` received an unknown value: {out_as}.')
-    
-    if dst:
-        io.write_to_file(ffp, dst)
-    
-    return ffp
+def _resolve_model(model):
+    """Resolve a model name, callable, or module to a FootprintModel callable."""
+    if isinstance(model, str):
+        return get_model(model)
+    if callable(model):
+        return model
+    calc = getattr(model, "calc", None)  # backwards compat: a model *module*
+    if callable(calc):
+        return calc
+    raise TypeError(
+        "`model` must be a registered model name, a FootprintModel callable, or "
+        f"a module exposing calc(...); got {type(model).__name__}.")
 
 
-def calculate_footprint(data=None, by=None, model=model.kljun2015, query=None, **kwargs):
+def _group_label(key):
+    """Map a groupby key to ``(time, label)`` for a Footprint.
+
+    A timestamp becomes ``time``; a number becomes a relative ``time`` label
+    (valid only in the local frame); anything else is kept as a ``group`` label
+    with ``time=None``.
     """
-    Calculate footprint using the Kljun et al. (2015) model.
+    if key is None:
+        return None, None
+    if isinstance(key, (pd.Timestamp, datetime)):
+        return pd.Timestamp(key).to_pydatetime(), key
+    if isinstance(key, numbers.Number) and not isinstance(key, bool):
+        return float(key), key
+    return None, key
 
-    Parameters:
-        data (pd.DataFrame, optional): A DataFrame containing the required columns.
-        by (str, optional): Column name to group the data by.
-        **kwargs: Individual keyword arguments for the required values.
+
+#: Inputs forwarded to a model's ``calc`` (met. variables + grid options).
+_MODEL_KEYS = frozenset({
+    "zm", "z0", "umean", "ustar", "pblh", "mo_length", "v_sigma", "wind_dir",
+    "domain", "dx", "dy", "nx", "ny", "rslayer", "smooth_data", "verbosity",
+})
+
+
+def calculate_footprint(data=None, by=None, model="kljun2015", query=None,
+                        tower=None, tower_crs=None, **kwargs):
+    """Compute footprints from tabular inputs as a :class:`FootprintSeries`.
+
+    Rows are grouped by ``by`` (one composited footprint per group) and each
+    group is passed to the selected model. With ``by=None`` the whole table is a
+    single group, giving a length-1 series. Use
+    :meth:`FootprintSeries.aggregate` for a climatology, or index the series for
+    individual footprints.
+
+    Args:
+        data: A DataFrame, a dict of equal-length sequences, or a URL string.
+        by: Column name (or list of names) to group rows by; ``None`` for one group.
+        model: Registered model name (e.g. ``"kljun2015"``) or a FootprintModel
+            callable. A module exposing ``calc(...)`` is also accepted.
+        query: Optional pandas query applied to ``data`` before grouping.
+        tower: ``(x, y)`` tower position, attached to each footprint for
+            later georeferencing.
+        tower_crs: CRS of ``tower``.
+        **kwargs: Model inputs / grid options (e.g. ``domain``, ``dx``, ``zm``)
+            and per-call overrides.
 
     Returns:
-        dict: Footprint data (x, y, fclim_2d, etc.).
+        FootprintSeries: One footprint per group, in the local tower-centred frame.
+
+    Raises:
+        ValueError: If no footprint could be calculated from the data.
     """
-    if isinstance(data, pd.DataFrame):
-        data = data.copy()
+    model_fn = _resolve_model(model)
+
     if isinstance(data, str):
         data = io.read_from_url(data, na_values=[-9999])
+    if isinstance(data, pd.DataFrame):
+        data = data.copy()
     if query:
         data = data.query(query)
-    
-    # Process inputs
-    inputs = process_footprint_inputs(data=data, keep_cols=[by] if isinstance(by, str) else [], **kwargs)
 
-    # Group data by a column
-    group_calc = [('climatology', inputs)] if by is None else pd.DataFrame(inputs).groupby(by)
+    keep_cols = (list(by) if isinstance(by, (list, tuple))
+                 else [by] if isinstance(by, str) else [])
+    inputs = process_footprint_inputs(data=data, keep_cols=keep_cols, **kwargs)
 
-    this_ffp = type('var_', (object,), {})
-    ffp = type('var_', (object,), {'group': [], 'x_2d': [], 'y_2d': [], 'fclim_2d': [],
-                                   'n': [], 'flag_err': []})
-    for i, this_group in group_calc:
-        assert this_group is not None, 'Please include data for footprint calculation.'
+    grouped = ([(None, inputs)] if by is None
+               else pd.DataFrame(inputs).groupby(by))
 
+    grid_defaults = {"domain": [-500, 500, -500, 500], "dx": 10,
+                     "verbosity": 0}
+    overrides = {k: v for k, v in kwargs.items() if k in _MODEL_KEYS}
+
+    footprints: list[Footprint] = []
+    skipped = 0
+    for key, group in grouped:
+        if isinstance(group, pd.DataFrame):
+            group = group.to_dict(orient="list")
+        time, label = _group_label(key)
+        call = {**grid_defaults, **overrides,
+                **{k: v for k, v in group.items() if k in _MODEL_KEYS}}
         try:
-            logger.debug(f'Current footprint: {i}, {model}.')
-            if isinstance(this_group, pd.DataFrame):
-                this_group = this_group.to_dict(orient='list')
-            
-            input_variables = ['zm', 'z0', 'umean', 'ustar', 'pblh', 'mo_length', 'v_sigma',
-                               'wind_dir', 'domain', 'dx', 'dy', 'rs', 'smooth_data', 'verbosity']
-            
-            this_input = {
-                'domain': [-500, 500, -500, 500],
-                'rs': [i/10 for i in range(1, 10)], 'dx': 10, 'dy': 10, 'verbosity': 0}
-            this_input.update(
-                {k: v for k, v in kwargs.items() if k in input_variables})
-            this_input.update(
-                {k: v for k, v in this_group.items() if k in input_variables})
-            
-            # Calculate footprint
-            this_ffp = model.calc_ffp_climatology(
-                **this_input
-            )
-        except Exception as e:
-            logger.error(f'CriticalErr: {e}')
-            # continue
-            
-        # ffp[i] = this_ffp
-        # ffp{k: vars(ffp).get(k, []) + [v] for k, v in vars(this_ffp).items() if not (k.startswith('__') and k.endswith('__'))}
-        ffp.group = ffp.group + [i]
-        ffp.x_2d = ffp.x_2d + [vars(this_ffp).get('x_2d', [])]
-        ffp.y_2d = ffp.y_2d + [vars(this_ffp).get('y_2d', [])]
-        ffp.fclim_2d = ffp.fclim_2d + [vars(this_ffp).get('fclim_2d', [])]
-        ffp.n = ffp.n + [vars(this_ffp).get('n', [])]
-        ffp.flag_err = ffp.flag_err + [vars(this_ffp).get('flag_err', [])]
-    
-    # Memory efficient
-    # ffp.x_2d = np.float32(ffp.x_2d)
-    # ffp.y_2d = np.float32(ffp.y_2d)
-    ffp.fclim_2d = np.float32(ffp.fclim_2d)
-    ffp.n = np.int8(ffp.n)
-    ffp.flag_err = np.int8(ffp.flag_err)
-    return ffp
+            fp = model_fn(tower=tower, tower_crs=tower_crs, time=time, **call)
+        except Exception:
+            # A failed group is skipped, never silently backfilled with another
+            # group's footprint. Re-raise instead of `continue` to abort instead.
+            logger.exception("Footprint failed for group %r; skipping.", key)
+            skipped += 1
+            continue
+        if getattr(fp, "n", None) == 0:
+            logger.warning("Group %r had no valid records; skipping.", key)
+            skipped += 1
+            continue
+        if label is not None:
+            fp.attrs.setdefault("group", label)
+        footprints.append(fp)
+
+    if not footprints:
+        raise ValueError(
+            "No footprints could be calculated from the provided data.")
+    if skipped:
+        logger.info("Skipped %d of %d group(s).",
+                    skipped, skipped + len(footprints))
+    return FootprintSeries(footprints)
+
+
+def empty_footprint(model="kljun2015", *, domain=None, dx=None, dy=None,
+                    **kwargs) -> Footprint:
+    """Return an empty (NaN) Footprint matching the model's grid.
+
+    Runs the selected model once with placeholder inputs to obtain the exact
+    grid it would produce for ``domain``/``dx``/``dy``, then blanks the field.
+    Useful as a template (to pre-allocate, or to report the output shape)
+    without computing a real footprint. Call ``.to_xarray()`` on the result for
+    an empty DataArray/Dataset.
+
+    Args:
+        model: Registered model name or a FootprintModel callable.
+        domain: ``[xmin, xmax, ymin, ymax]`` in metres (model default if None).
+        dx, dy: Grid spacing in metres.
+        **kwargs: Other grid options forwarded to the model (e.g. ``nx``/``ny``).
+
+    Returns:
+        Footprint: The grid/coords of a real footprint, with ``f`` all NaN.
+    """
+    model_fn = _resolve_model(model)
+    grid = {"domain": domain if domain is not None else [-500, 500, -500, 500],
+            "dx": dx if dx is not None else 10, "verbosity": 0}
+    if dy is not None:
+        grid["dy"] = dy
+    grid.update({k: v for k, v in kwargs.items() if k in _MODEL_KEYS})
+
+    # Safe placeholder met inputs: the grid is independent of their values, and
+    # these avoid tripping the model's input validation. Skip any already given.
+    placeholders = {"zm": 2.0, "umean": 2.0, "ustar": 0.3, "pblh": 1000.0,
+                    "mo_length": -100.0, "v_sigma": 0.5, "wind_dir": 0.0}
+    placeholders = {k: v for k, v in placeholders.items() if k not in grid}
+
+    fp = model_fn(**grid, **placeholders)
+    return fp._replace(f=np.full(fp.f.shape, np.nan, dtype=fp.f.dtype))
+
+
+def wrapper(*args, out_as="nc", dst="", meta=None, aggregate=True,
+            decimals=None, **kwargs):
+    """Compute footprints and optionally write them to a file.
+
+    A thin convenience over :func:`calculate_footprint`. Returns the climatology
+    (``aggregate=True`` -> a :class:`Footprint`) or the full
+    :class:`FootprintSeries`, and writes it to ``dst`` when given.
+
+    Args:
+        out_as: ``"nc"``/``"netcdf"`` or ``"tif"``/``"tiff"``. A TIFF needs an
+            aggregated, georeferenced footprint.
+        dst: Output path; nothing is written when empty.
+        meta: Extra attributes merged into the result's ``attrs``.
+        aggregate: Collapse the series to a climatology before returning/writing.
+        *args, **kwargs: Forwarded to :func:`calculate_footprint`.
+
+    Returns:
+        Footprint | FootprintSeries: The computed result.
+    """
+    series = calculate_footprint(*args, **kwargs)
+    result = series.aggregate() if aggregate else series
+
+    # Metadata lives on Footprints (a series has no attrs of its own).
+    targets = result.footprints if isinstance(result, FootprintSeries) else [result]
+    for fp in targets:
+        fp.attrs.setdefault("model_used", kwargs.get("model", "kljun2015"))
+        if meta:
+            fp.attrs.update(meta)
+
+    if dst:
+        if out_as in ("nc", "netcdf"):
+            result.to_netcdf(dst, decimals=decimals)
+        elif out_as in ("tif", "tiff", "raster"):
+            if isinstance(result, FootprintSeries):
+                raise ValueError(
+                    "Writing a TIFF needs a single footprint; pass "
+                    "aggregate=True or index the series.")
+            if not result.is_georeferenced:
+                raise ValueError(
+                    "Georeference the footprint before writing a TIFF: pass "
+                    "tower/tower_crs and call .georeference(target_crs).")
+            result.to_tiff(dst)
+        else:
+            raise ValueError(f"Unknown out_as={out_as!r}; use 'nc' or 'tif'.")
+    return result
 
 
 def aggregate_footprints(fclim_2d, dx, dy, smooth_data=1):
@@ -327,3 +432,11 @@ def get_contour(footprint, dx, dy, rs, verbosity=0):
     return type('var_', (object,), {"xr": xrs, "yr": yrs, 'fr': frs, 'rs': rs, 'flag_err': flag_err})
 
 
+__all__ = [
+    "calculate_footprint",
+    "empty_footprint",
+    "process_footprint_inputs",
+    "aggregate_footprints",
+    "get_contour",
+    "wrapper",
+]

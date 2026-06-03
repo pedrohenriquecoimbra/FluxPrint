@@ -12,6 +12,8 @@ from scipy import signal as sg
 
 from ..exceptions import *
 from ..utils import plot_footprint, get_contour_levels, get_contour_vertices
+from ..footprint import Footprint
+from .base import register_model
 
 logger = logging.getLogger('fluxprint.model.kljun_et_al_2015')
 
@@ -851,3 +853,58 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, pblh=None, mo_length=None, v
             'sigy': sigy,
             'f_1d': f_1d, 'fstar_ci_param': fstar_ci_param
             }
+
+
+@register_model("kljun2015", description="Kljun et al. (2015) FFP parameterisation")
+def calc(*, zm, ustar, pblh, mo_length, v_sigma, wind_dir, z0=None, umean=None,
+         domain=None, dx=None, dy=None, nx=None, ny=None, rslayer=0,
+         smooth_data=1, tower=None, tower_crs=None, time=None, verbosity=0,
+         **kwargs) -> Footprint:
+    """Kljun et al. (2015) footprint as a :class:`~fluxprint.footprint.Footprint`.
+
+    Thin wrapper over :func:`calc_ffp_climatology`. Accepts scalars (one record)
+    or equal-length sequences (composited into one footprint) and returns the
+    result on the model's regular grid in the local tower-centred frame. Provide
+    ``wind_dir`` for a north-up (geographically oriented) grid.
+
+    Args:
+        zm: Measurement height above displacement [m].
+        ustar: Friction velocity [m s-1].
+        pblh: Boundary-layer height [m].
+        mo_length: Obukhov length [m].
+        v_sigma: Std. dev. of lateral velocity [m s-1].
+        wind_dir: Wind direction [deg]; rotates the footprint to geographic axes.
+        z0: Roughness length [m] (or pass ``umean`` instead).
+        umean: Mean wind speed [m s-1] (alternative to ``z0``).
+        domain: ``[xmin, xmax, ymin, ymax]`` [m]; defaults to a tower-centred 2 km box.
+        dx, dy: Grid spacing [m].
+        nx, ny: Grid element counts (alternative to ``dx``/``dy``).
+        rslayer: Set ``1`` to compute even within the roughness sublayer.
+        smooth_data: Apply the standard smoothing kernel (``1``) or not (``0``).
+        tower, tower_crs, time: Metadata attached to the returned footprint.
+        verbosity: Passed through to the underlying routine.
+
+    Returns:
+        A local-frame :class:`~fluxprint.footprint.Footprint` (``n`` = records
+        composited; ``attrs["flag_err"]`` carries the model error flag).
+    """
+    def _listify(value):
+        # calc_ffp_climatology wraps non-lists as a single element, so arrays /
+        # tuples / Series must be converted to a list; scalars pass through.
+        if value is None or isinstance(value, (int, float, list)):
+            return value
+        return list(value)
+
+    out = calc_ffp_climatology(
+        zm=_listify(zm), z0=_listify(z0), umean=_listify(umean),
+        ustar=_listify(ustar), pblh=_listify(pblh),
+        mo_length=_listify(mo_length), v_sigma=_listify(v_sigma),
+        wind_dir=_listify(wind_dir), domain=domain, dx=dx, dy=dy, nx=nx, ny=ny,
+        rslayer=rslayer, smooth_data=smooth_data, crop=0, verbosity=verbosity)
+
+    x = np.asarray(out.x_2d)[0, :]
+    y = np.asarray(out.y_2d)[:, 0]
+    return Footprint(
+        f=np.asarray(out.fclim_2d), x=x, y=y, time=time,
+        tower=tower, tower_crs=tower_crs, n=int(out.n),
+        attrs={"model": "kljun2015", "flag_err": int(out.flag_err)})

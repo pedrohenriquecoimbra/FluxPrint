@@ -1,10 +1,6 @@
-.deprecated
-*/__pycache__/*
-*/*/__pycache__/*
-build
-dist
-*.egg-info
-assets/*.ppt
-private*
-model/Hsieh_et_al_2000.py
-model/Kormann_and_Meixner_2001.py
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/

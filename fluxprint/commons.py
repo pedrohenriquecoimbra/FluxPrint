@@ -19,26 +19,36 @@ import datetime
 # project modules
 
 
-def start_logging(outputpath, **kwargs):
-    """
-    Start logging to a file in the specified output path.
+def start_logging(outputpath, *, level=logging.INFO, **kwargs):
+    """Attach a file handler to the ``fluxprint`` logger (opt-in, for applications).
+
+    A library must not reconfigure the root logger, so this attaches a handler to
+    the package logger only and leaves root handlers and warning capture
+    untouched. Intended to be called explicitly by an application or CLI, never
+    at import time.
+
+    Args:
+        outputpath: Directory under which a timestamped ``log/`` file is created.
+        level: Level to set on the ``fluxprint`` logger.
+        **kwargs: Reserved for backwards compatibility (ignored).
+
+    Returns:
+        logging.Logger: The configured ``fluxprint`` logger.
     """
     logname = str(os.path.join(
         outputpath, f"log/current_{datetime.datetime.now().strftime('%y%m%dT%H%M%S')}.log"))
     mkdirs(logname)
 
-    params = dict(filemode='a',
-                   format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                   datefmt='%Y-%m-%d %H:%M:%S',
-                   level=logging.DEBUG,
-                   force=True)
-    params.update(kwargs)
+    handler = logging.FileHandler(logname, mode="a")
+    handler.setFormatter(logging.Formatter(
+        fmt="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"))
 
-    # with open(logname, "w+"): pass
-    logging.basicConfig(filename=logname, **params)
-
-    logging.captureWarnings(True)
-    logging.info("STARTING THE RUN")
+    fp_logger = logging.getLogger("fluxprint")
+    fp_logger.addHandler(handler)
+    fp_logger.setLevel(level)
+    fp_logger.info("Logging fluxprint to %s", logname)
+    return fp_logger
 
 
 def mkdirs(filename):

@@ -98,16 +98,13 @@ def convert_to_nc(data, **attrs):
         data = convert_to_object(data)
         # Convert dictionary to xarray Dataset
         data = object_to_nc(data)
-    elif isinstance(data, (object)):
-        # if not is_footprint_dict(data):
-        #     # (not len(data.keys()) and 'fclim_2d' not in data) or (len(data.keys()) and 'fclim_2d' not in data[list(data.keys())[0]]):
-        #     warnings.warn(
-        #         "Warning: Data must be a dictionary with 'fclim_2d' key.")
-        # Convert dictionary to xarray Dataset
+    elif hasattr(data, "fclim_2d"):
+        # Footprint object (carries an `fclim_2d` attribute) -> xarray Dataset
         data = object_to_nc(data)
     else:
-        raise ValueError(
-            "Data must be a dictionary or rasterio Dataset.")
+        raise TypeError(
+            "Data must be an xarray Dataset, a rasterio dataset, or a footprint "
+            f"object with an `fclim_2d` attribute; got {type(data).__name__}.")
 
     # Update attributes
     attrs = update_nested_dict(
@@ -162,12 +159,15 @@ def convert_to_tif(data, anchor='top-left', **attrs):
 
         return memory_tif
 
-    elif isinstance(data, (object)):
-        # Convert dictionary to xarray Dataset
-        data = object_to_nc(data, attrs)
+    elif hasattr(data, "fclim_2d"):
+        # Footprint object -> Dataset (with attrs/CRS merged) -> recurse to the
+        # xarray branch above, which actually builds and returns the TIFF.
+        # Previously this branch fell through to `return None`.
+        return convert_to_tif(convert_to_nc(data, **attrs), anchor=anchor)
     else:
-        raise ValueError(
-            "Data must be a dictionary or rasterio Dataset.")
+        raise TypeError(
+            "Data must be an xarray Dataset, a rasterio dataset, or a footprint "
+            f"object with an `fclim_2d` attribute; got {type(data).__name__}.")
     return
 
 
@@ -781,7 +781,7 @@ def plot_leaflet(*ncs, dst=None, labels=[], editable=False):
         # Get the footprint data
         footprint_data = np.nanmean(nc.footprint.to_numpy(), axis=0)
         footprint_data = transformer_convention(
-            nc, '(lon,lat)', 'top-left', 
+            nc, '(lat,lon)', 'top-left', 
             nc.footprint.attrs.get('convention_order', None), 
             nc.footprint.attrs.get('convention_origin', None))(footprint_data)
 
@@ -820,3 +820,37 @@ def plot_leaflet(*ncs, dst=None, labels=[], editable=False):
 
     # Display the map
     return m
+
+
+__all__ = [
+    "structuredData",
+    "convert_to_object",
+    "convert_to_nc",
+    "convert_to_tif",
+    "is_footprint_dict",
+    "find_peak",
+    "smooth_data",
+    "transform_crs",
+    "transform_coordinates",
+    "find_utm_epsg_from_lon",
+    "update_affine",
+    "update_attrs_in_nc",
+    "fp_to_nc",
+    "object_to_nc",
+    "attribute_crs",
+    "extract_crs",
+    "reproject_tif",
+    "reproject_netcdf",
+    "get_contour_levels",
+    "get_contour_vertices",
+    "center_footprint",
+    "plot_footprint",
+    "get_colormap",
+    "plot_leaflet",
+    "find_middle_point",
+    "affine_conventions",
+    "transformer_convention",
+    "identify_convention",
+    "infer_convention_from_affine",
+    "infer_convention_from_nc",
+]
