@@ -60,7 +60,7 @@ def test_caller_pblh_is_lazy_and_does_not_require_z0_inputs():
 
 def test_caller_v_sigma_only_needs_ustar():
     out = micrometeorology.caller({"ustar": [0.2, 0.4]}, "v_sigma")
-    assert np.allclose(out, [0.7, 1.4])  # sigma_v = 3.5 * ustar
+    assert np.allclose(out, [0.4, 0.8])  # sigma_v = 2.0 * ustar
 
 
 def test_caller_unknown_variable_returns_none():
@@ -83,7 +83,7 @@ def test_fill_all_toggles_crude_estimators():
 
 
 def test_filler_returns_none_when_inputs_unavailable():
-    # mo_length needs ustar + H (+ theta or TA/PA); with nothing it can't compute.
+    # mo_length needs ustar + H + TA + PA; with nothing it can't compute.
     assert micrometeorology.filler({}, "mo_length", fill_all=True) is None
 
 
