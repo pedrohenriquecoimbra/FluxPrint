@@ -54,10 +54,16 @@ def compute_psi_f(zm, ol):
 
 
 @register("pblh", ESTIMATORS, "Boundary-layer height from ustar and latitude")
-def compute_pblh(ustar, latitude_deg):
-    """Not yet validated."""
+def compute_pblh(ustar, latitude_deg, f_min=1e-5):
+    """Boundary-layer height ``h = ustar / f``.
+
+    The Coriolis parameter f -> 0 near the equator, which would blow up
+    ``h = ustar / f``, so ``|f|`` is floored at ``f_min`` (~ +/- 4 deg
+    latitude) while keeping its sign.
+    """
     omega = 7.2921e-5  # Earth's angular velocity [rad s-1]
     f = 2 * omega * np.sin(np.radians(latitude_deg))
+    f = np.where(f >= 0, np.maximum(f, f_min), np.minimum(f, -f_min))
     return np.asarray(ustar) / f
 
 
@@ -70,17 +76,33 @@ def compute_virtual_potential_temperature(Ta, P, r=None, P0=100, R_cp=0.286, r_L
 
 
 @register("mo_length", ESTIMATORS, "Obukhov length from ustar, theta and heat flux")
-def compute_mo_length(ustar, H, theta=None, TA=None, PA=None, k=0.4, g=9.81):
-    """Not yet validated."""
+def compute_mo_length(ustar, H, theta=None, TA=None, PA=None, k=0.4, g=9.81,
+                      cp=1005.0, Rd=287.05):
+    """Obukhov length from ustar, sensible heat flux and temperature.
+
+    ``H`` is the *sensible* heat flux [W m-2], ``TA`` is in degrees Celsius and
+    ``PA`` in kPa. The Obukhov length is defined with the *kinematic* buoyancy
+    flux ``w'theta' = H / (rho*cp)`` [K m s-1], so ``H`` must be divided by
+    ``rho*cp`` (~1200) first -- otherwise ``|L|`` comes out ~1200x too small.
+    """
+    if TA is None or PA is None:
+        raise ValueError(
+            "compute_mo_length requires TA (degC) and PA (kPa) to convert the "
+            "sensible heat flux H (W m-2) into the kinematic buoyancy flux "
+            "H/(rho*cp).")
+    T_K = np.asarray(TA) + 273.15
     if theta is None:
-        # TA in degC -> K (273.15).
-        theta = compute_virtual_potential_temperature(np.asarray(TA) + 273.15, PA)
-    return -(np.asarray(ustar) ** 3) * theta / (k * g * np.asarray(H))
+        theta = compute_virtual_potential_temperature(T_K, PA)
+    # Air density [kg m-3] from the ideal gas law (PA kPa -> Pa).
+    rho = (np.asarray(PA) * 1000.0) / (Rd * T_K)
+    # Kinematic (buoyancy) heat flux w'theta' [K m s-1].
+    w_theta = np.asarray(H) / (rho * cp)
+    return -(np.asarray(ustar) ** 3) * theta / (k * g * w_theta)
 
 
 @register("v_sigma", ESTIMATORS, "Std. dev. of lateral velocity from ustar")
-def compute_std_v(ustar, a=3.5, b=0):
-    """Not yet validated."""
+def compute_std_v(ustar, a=2.0, b=0):
+    """Crude sigma_v ~ a * ustar (a ~ 1.9-2.5 near-neutral; was a=3.5)."""
     return a * np.asarray(ustar) + b
 
 
@@ -96,10 +118,9 @@ def _essential() -> dict[str, tuple]:
         "z0": (lambda d: compute_z0(d["umean"], d["ustar"], d["zm"],
                                     ol=d.get("mo_length", 1)),
                ("umean", "ustar", "zm")),
-        "mo_length": (lambda d: compute_mo_length(
-            d["ustar"], d["H"], theta=d.get("theta"), TA=d.get("TA"),
-            PA=d.get("PA")) if ("theta" in d or ("TA" in d and "PA" in d)) else None,
-            ("ustar", "H")),
+        "mo_length": (lambda d: compute_mo_length(d["ustar"], d["H"],
+                                                  TA=d["TA"], PA=d["PA"]),
+                      ("ustar", "H", "TA", "PA")),
         "pblh": (1000.0, ()),
         "v_sigma": (lambda d: compute_std_v(d["ustar"]), ("ustar",)),
     }
