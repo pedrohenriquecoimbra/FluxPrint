@@ -28,7 +28,8 @@ import numpy as np
 from .core import ALIASES, _resolve_model
 from .exceptions import InputValidationError
 from .footprint import smooth_field
-from .grid import GridContext, resolve_grid as _default_resolve_grid
+from .grid import (GridContext, normalize_grid_args,
+                   resolve_grid as _default_resolve_grid)
 from .model import engine
 
 logger = logging.getLogger("fluxprint.mapping")
@@ -59,9 +60,34 @@ def _find_variable(data, name):
     return None
 
 
+def _promote(name, value):
+    """Make ``value`` an xarray object so the mapped result is a DataArray.
+
+    ``apply_ufunc`` returns a bare ndarray when *no* argument is an xarray
+    object, and the coords/attrs assigned below need a DataArray - so an
+    all-scalar call would die on ``.assign_coords``. A 0-d DataArray carries
+    no dims, so scalars promote transparently. A plain N-d array cannot:
+    ``apply_ufunc`` matches inputs by dimension *name*, and names invented
+    here would not align with the caller's other inputs.
+    """
+    if value is None:
+        return None
+    import xarray as xr
+    if isinstance(value, (xr.DataArray, xr.Dataset)):
+        return value
+    array = np.asarray(value)
+    if array.ndim == 0:
+        return xr.DataArray(array)
+    raise TypeError(
+        f"`{name}` is a {array.ndim}-d {type(value).__name__}; map_footprints "
+        "broadcasts inputs by dimension name, so array inputs must be "
+        "xarray.DataArray objects (or variables of `data`). Wrap it, e.g. "
+        f'xr.DataArray({name}, dims=("time",)).')
+
+
 def map_footprints(data=None, model="kljun2015", *, domain=None, dx=None,
-                   dy=None, nx=None, ny=None, smooth=0, on_error="nan",
-                   **inputs):
+                   dy=None, nx=None, ny=None, smooth=None, smooth_data=None,
+                   on_error="nan", verbosity=0, **inputs):
     """One footprint field per record, mapped over arrays of any shape.
 
     Args:
@@ -79,6 +105,11 @@ def map_footprints(data=None, model="kljun2015", *, domain=None, dx=None,
             rules (:func:`~fluxprint.grid.resolve_grid` defaults).
         smooth: Truthy to smooth each record's field (off by default — this
             is a compute kernel; smooth climatologies, not members).
+        smooth_data: The FFP-compatible spelling of ``smooth``; ``smooth``
+            wins when both are given, as on the eager model call.
+        verbosity: Accepted for signature parity with the model call. The
+            mapped path reports rejections once per block rather than per
+            record, so the value is not used.
         on_error: ``"nan"`` (default) turns an invalid record — or one the
             kernel fails on — into an all-NaN plane, with one summary log
             line per block; ``"raise"`` aborts on the first bad record.
@@ -91,6 +122,11 @@ def map_footprints(data=None, model="kljun2015", *, domain=None, dx=None,
     """
     import xarray as xr
 
+    # `smooth` is the generic spelling and `smooth_data` the FFP-compatible
+    # one the downstream contract pins; `smooth` wins when both are given,
+    # matching `@footprint_model`'s rule. The mapped default stays off.
+    if smooth is None:
+        smooth = 0 if smooth_data is None else smooth_data
     if on_error not in ("nan", "raise"):
         raise ValueError(
             f"on_error must be 'nan' or 'raise'; got {on_error!r}.")
@@ -132,10 +168,12 @@ def map_footprints(data=None, model="kljun2015", *, domain=None, dx=None,
     if met["z0"] is None and met["umean"] is None:
         raise ValueError("Either z0 or umean is required.")
     profile = "z0" if met["z0"] is not None else "umean"
+    met = {name: _promote(name, value) for name, value in met.items()}
     aux = met[profile]
 
     resolver = getattr(model_fn, "resolve_grid", _default_resolve_grid)
-    spec = resolver(domain=domain, dx=dx, dy=dy, nx=nx, ny=ny)
+    spec = resolver(**normalize_grid_args(
+        domain=domain, dx=dx, dy=dy, nx=nx, ny=ny))
     ctx = GridContext(spec)
 
     def _block(zm_a, ustar_a, pblh_a, ol_a, sv_a, wd_a, aux_a):
@@ -202,4 +240,10 @@ def map_footprints(data=None, model="kljun2015", *, domain=None, dx=None,
         "domain": list(spec.domain),
         "dx": spec.dx, "dy": spec.dy,
     })
+    # Provenance parity with the eager path: a single `Footprint` carries the
+    # registry's citation/DOI/reference version, and a mapped cube must not be
+    # the less traceable of the two. `setdefault` so meta cannot shadow the
+    # keys resolved above.
+    for key, value in getattr(model_fn, "model_meta", {}).items():
+        result.attrs.setdefault(key, value)
     return result

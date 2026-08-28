@@ -127,3 +127,40 @@ def test_dask_backed_input_stays_lazy_and_matches_eager():
     assert lazy.chunks is not None  # still lazy, nothing computed yet
     eager = map_footprints(ds, **GRID)
     assert np.array_equal(lazy.compute().values, eager.values)
+
+
+def test_all_scalar_inputs_return_a_dataarray_matching_the_eager_call():
+    # apply_ufunc hands back a bare ndarray when no argument is an xarray
+    # object, so the scalar call the docstring advertises used to die on
+    # .assign_coords. Scalars now promote to 0-d DataArrays, adding no dims.
+    result = map_footprints(**MET, wind_dir=30.0, **GRID)
+    assert result.dims == ("y", "x")
+    fp = get_model("kljun2015")(**MET, wind_dir=30.0, **GRID, smooth_data=0,
+                                verbosity=0)
+    assert np.array_equal(result.values, fp.f)
+    assert np.array_equal(result["x"].values, fp.x)
+
+
+def test_plain_nd_arrays_are_refused_with_an_actionable_message():
+    # Promoting these would invent dim names that cannot align with the
+    # caller's other inputs, so they are refused rather than mis-broadcast.
+    with pytest.raises(TypeError, match="dimension name"):
+        map_footprints(**{**MET, "ustar": np.array([0.4, 0.5])},
+                       wind_dir=30.0, **GRID)
+
+
+def test_ffp_spellings_are_accepted_and_smooth_wins():
+    # test_downstream_contract pins smooth_data/verbosity as spellings that
+    # stay supported throughout 0.x; the mapped path used to reject both.
+    assert map_footprints(**MET, wind_dir=30.0, **GRID,
+                          smooth_data=1, verbosity=0).attrs["smooth"] == 1
+    assert map_footprints(**MET, wind_dir=30.0, **GRID,
+                          smooth=0, smooth_data=1).attrs["smooth"] == 0
+    assert map_footprints(**MET, wind_dir=30.0, **GRID).attrs["smooth"] == 0
+
+
+def test_mapped_output_carries_the_same_provenance_as_an_eager_footprint():
+    result = map_footprints(_dataset(), **GRID)
+    fp = get_model("kljun2015")(**MET, wind_dir=30.0, **GRID)
+    for key in ("model_citation", "model_doi", "model_reference_version"):
+        assert result.attrs[key] == fp.attrs[key], key

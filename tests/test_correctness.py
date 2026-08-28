@@ -440,6 +440,20 @@ def test_fill_all_toggles_crude_estimators():
     assert micrometeorology.filler({"ustar": 0.3}, "v_sigma", fill_all=False) is not None
 
 
+def test_crude_ustar_survives_a_present_but_none_z0():
+    # Callers commonly spell an absent variable as an explicit None, and the
+    # `needs` guard only covers the keys the entry declares -- so a present-
+    # but-None z0 used to reach compute_ustar and raise TypeError. Reachable
+    # from calculate_footprint(z0=None, fill_all=True), because the estimation
+    # order does ustar before z0.
+    value = micrometeorology.filler(
+        {"umean": 2.0, "zm": 20.0, "z0": None}, "ustar", fill_all=True)
+    assert value is not None and np.isfinite(value)
+    # An explicit z0 is still honoured over the 0.1 m fallback.
+    assert micrometeorology.filler(
+        {"umean": 2.0, "zm": 20.0, "z0": 0.5}, "ustar", fill_all=True) != value
+
+
 def test_filler_returns_none_when_inputs_unavailable():
     # mo_length needs ustar + H + TA + PA; with nothing it can't compute.
     assert micrometeorology.filler({}, "mo_length", fill_all=True) is None

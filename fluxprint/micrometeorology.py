@@ -174,7 +174,11 @@ def _filler() -> dict[str, tuple]:
     return {
         "zm": (30.0, ()),
         "umean": (1.0, ()),
-        "ustar": (lambda d: compute_ustar(d["umean"], d["zm"], z0=d.get("z0", 0.1)),
+        # `d.get("z0", 0.1)` would not do: callers commonly pass z0=None for
+        # an absent variable, and a present-but-None z0 defeats the default
+        # (the `needs` guard in `filler` only covers the keys listed here).
+        "ustar": (lambda d: compute_ustar(d["umean"], d["zm"],
+                                          z0=d.get("z0") or 0.1),
                   ("umean", "zm")),
         "wind_dir": (0.0, ()),
         # A constant boundary-layer height is a crude fallback, not a physical

@@ -10,9 +10,12 @@ implementation (tests/test_reference_regression.py), so every function moved
 here is verbatim code motion: same float operations, same order, same dtypes,
 quirks included. Do not "improve" anything on the numeric path.
 
-This module reserves the seam the planned xarray/dask compute path needs: a
-pure kernel plus :attr:`fluxprint.grid.GridSpec.shape` gives the output shape
-without compute, and a kernel neither raises nor logs per record.
+This module holds the seam the xarray/dask compute path uses: a pure kernel
+plus :attr:`fluxprint.grid.GridSpec.shape` gives the output shape without
+compute, and a kernel neither raises nor logs per record.
+:func:`fluxprint.map_footprints` drives the kernel directly through that
+protocol (``.kernel``/``.validate``/``.resolve_grid``/``.model_options``/
+``.option_defaults``/``.model_meta``).
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ import numpy as np
 
 from ..exceptions import check_ffp_inputs, raise_ffp_exception
 from ..footprint import Footprint, smooth_field
-from ..grid import GridContext, resolve_grid
+from ..grid import GridContext, normalize_grid_args, resolve_grid
 from .base import register_model
 
 logger = logging.getLogger('fluxprint.model.engine')
@@ -364,7 +367,8 @@ def footprint_model(name: str, *, description: str = "",
                 mo_length=listify(mo_length), v_sigma=listify(v_sigma),
                 wind_dir=listify(wind_dir), z0=listify(z0),
                 umean=listify(umean), verbosity=verbosity)
-            spec = resolve_grid(domain=domain, dx=dx, dy=dy, nx=nx, ny=ny)
+            spec = resolve_grid(**normalize_grid_args(
+                domain=domain, dx=dx, dy=dy, nx=nx, ny=ny))
             result = run_climatology(
                 kernel, ctx=GridContext(spec), inputs=inputs, opts=opts,
                 validate=validate_fn, smooth_data=smooth_data,
@@ -384,6 +388,7 @@ def footprint_model(name: str, *, description: str = "",
         # The kernel protocol: what empty_footprint and map_footprints need.
         calc.kernel = kernel
         calc.resolve_grid = resolve_grid
+        calc.model_meta = dict(meta)
         calc.validate = validate_fn
         calc.model_options = tuple(options)
         calc.option_defaults = dict(option_defaults)
