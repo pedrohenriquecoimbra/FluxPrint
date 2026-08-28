@@ -37,7 +37,8 @@ science:
 
 - **Footprint models** behind one interface, selected by name: Kljun et al.
   (2015) and Hsieh et al. (2000, with the Detto et al. 2006 crosswind
-  expansion); Kormann & Meixner (2001) is planned. A new model is only its
+  expansion); Kormann & Meixner (2001) is
+  [planned](docs/ROADMAP.md#060--the-cleanup-and-the-third-model). A new model is only its
   physics — a per-record kernel registered with `@footprint_model` inherits
   the grid, record loop, validation, smoothing and provenance.
 - **A typed footprint object** (`Footprint`): a 2-D source-area field on a fixed
@@ -68,9 +69,10 @@ pip install git+https://github.com/pedrohenriquecoimbra/fluxprint
 `import fluxprint` is light: the geo/plotting stack (`xarray`/`netcdf4`,
 `rasterio`, `pyproj`, `fiona`/`shapely`, `matplotlib`) is imported lazily by
 the operations that need it. Those libraries are still installed as
-dependencies today; a future release will move them into the already-declared
-extras (`fluxprint[netcdf]`, `[tiff]`, `[crs]`, `[shapefile]`; `[viz]` adds
-`folium` for interactive maps, `[all]` installs everything).
+dependencies today; [a future release](docs/ROADMAP.md#060--the-cleanup-and-the-third-model)
+will move them into the already-declared extras (`fluxprint[netcdf]`,
+`[tiff]`, `[crs]`, `[shapefile]`; `[viz]` adds `folium` for interactive
+maps, `[all]` installs everything).
 
 ---
 
@@ -254,6 +256,15 @@ If FluxPrint contributes to your research, please cite the software (see
 [CITATION.cff](CITATION.cff)) alongside the footprint-model paper you used
 (e.g. Kljun et al., 2015 — the models' own citations and DOIs are stamped
 into every output's metadata).
+
+---
+
+## Roadmap
+
+[`docs/ROADMAP.md`](docs/ROADMAP.md) records where the library is going
+after 0.4.0 — the planned 0.5.0 integration API, the 0.6.0 cleanup and
+third model, what 1.0 will guarantee — and, just as usefully, what has
+been deliberately declined and why.
 
 ---
 

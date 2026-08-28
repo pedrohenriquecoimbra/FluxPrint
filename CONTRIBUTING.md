@@ -3,6 +3,10 @@
 Contributions are welcome. Fork the repository, create a branch for your
 change, and open a pull request.
 
+Before proposing a larger change, check [`docs/ROADMAP.md`](docs/ROADMAP.md):
+it records what is planned for the next releases and what has been
+deliberately declined, with the reasoning.
+
 ## Development setup
 
 ```bash
