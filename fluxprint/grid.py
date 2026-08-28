@@ -32,12 +32,13 @@ Depends only on :mod:`numpy`.
 from __future__ import annotations
 
 import numbers
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["GridSpec", "GridContext", "resolve_grid", "rotate_theta",
-           "to_wind_frame"]
+__all__ = ["GridSpec", "GridContext", "resolve_grid", "normalize_grid_args",
+           "rotate_theta", "to_wind_frame"]
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,90 @@ def resolve_grid(domain=None, dx=None, dy=None, nx=None, ny=None) -> GridSpec:
 
     return GridSpec(xmin=domain[0], xmax=domain[1], ymin=domain[2],
                     ymax=domain[3], dx=dx, dy=dy, nx=nx, ny=ny)
+
+
+def normalize_grid_args(domain=None, dx=None, dy=None, nx=None, ny=None, *,
+                        coerce=False, warn=True) -> dict:
+    """Diagnose - and optionally repair - grid arguments ``resolve_grid`` drops.
+
+    :func:`resolve_grid` reproduces the FFP reference verbatim, and the
+    reference discriminates on argument *type* rather than value: a ``domain``
+    that is not a 4-element ``list`` is discarded (``tuple``, ``ndarray`` and
+    ``Series`` included), ``nx``/``ny`` that are not Python ``int`` are
+    discarded (``numpy.int64`` included), and ``dx``/``dy`` that are not
+    numbers are discarded. Each of those silently falls back to the default
+    2 km box -- a wrong grid with no error.
+
+    This wrapper is where public entry points get a diagnosis without the
+    reference-equivalence layer moving: ``warn`` reports every argument that
+    would be discarded, and ``coerce`` converts the recoverable ones (a
+    4-element sequence of numbers, an integral ``nx``/``ny``, a numeric
+    ``dx``/``dy``) into the types :func:`resolve_grid` accepts.
+
+    Args:
+        domain, dx, dy, nx, ny: The grid arguments as the caller passed them.
+        coerce: Repair recoverable arguments instead of leaving them to be
+            discarded. ``False`` changes nothing and only reports.
+        warn: Emit a ``UserWarning`` naming each offending argument.
+
+    Returns:
+        ``dict`` of ``domain``/``dx``/``dy``/``nx``/``ny`` keyword arguments
+        for :func:`resolve_grid`.
+    """
+    out = {"domain": domain, "dx": dx, "dy": dy, "nx": nx, "ny": ny}
+    faults = []
+
+    if domain is not None and not (isinstance(domain, list)
+                                   and len(domain) == 4):
+        fixed = None
+        if not isinstance(domain, (str, bytes)):
+            try:
+                values = [float(v) for v in domain]
+            except (TypeError, ValueError):
+                values = None
+            if values is not None and len(values) == 4:
+                fixed = values
+        if fixed is not None:
+            faults.append(f"`domain` is a {type(domain).__name__}, not a list "
+                          "of 4")
+            if coerce:
+                out["domain"] = fixed
+        else:
+            faults.append(f"`domain` is not a list of 4 numbers ({domain!r})")
+
+    for key, value in (("nx", nx), ("ny", ny)):
+        if value is None or isinstance(value, int):
+            continue
+        fixed = None
+        if isinstance(value, numbers.Integral):
+            fixed = int(value)
+        elif isinstance(value, numbers.Real) and float(value).is_integer():
+            fixed = int(value)
+        if fixed is not None:
+            faults.append(f"`{key}` is a {type(value).__name__}, not an int")
+            if coerce:
+                out[key] = fixed
+        else:
+            faults.append(f"`{key}` is not a whole number of grid cells "
+                          f"({value!r})")
+
+    for key, value in (("dx", dx), ("dy", dy)):
+        if value is None or isinstance(value, numbers.Number):
+            continue
+        faults.append(f"`{key}` is not a number ({value!r})")
+
+    if faults and warn:
+        if coerce:
+            tail = "They have been coerced to the types the resolver accepts."
+        else:
+            tail = ("They are ignored, so the grid silently falls back to the "
+                    "default 2 km box. Pass `domain` as a list of 4 numbers "
+                    "and `nx`/`ny` as Python ints to get the grid you asked "
+                    "for.")
+        warnings.warn("Grid argument(s) not in the form the footprint grid "
+                      "resolver requires: " + "; ".join(faults) + ". " + tail,
+                      UserWarning, stacklevel=3)
+    return out
 
 
 class GridContext:

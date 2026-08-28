@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fluxprint.grid import (GridContext, GridSpec, resolve_grid, rotate_theta,
-                            to_wind_frame)
+from fluxprint.grid import (GridContext, GridSpec, normalize_grid_args,
+                            resolve_grid, rotate_theta, to_wind_frame)
 
 
 # --------------------------------------------------------------------------- #
@@ -113,3 +113,41 @@ def test_along_wind_points_at_the_wind_source():
     along, cross = to_wind_frame(np.array([[100.0]]), np.array([[0.0]]), 90.0)
     assert along[0, 0] == pytest.approx(100.0)
     assert cross[0, 0] == pytest.approx(0.0, abs=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# normalize_grid_args: diagnose (0.4) then repair (0.5) what resolve_grid drops #
+# --------------------------------------------------------------------------- #
+def test_normalize_reports_the_arguments_resolve_grid_discards():
+    with pytest.warns(UserWarning, match="grid resolver requires"):
+        out = normalize_grid_args(domain=(-500, 500, -500, 500),
+                                  nx=np.int64(100))
+    # warn-only: 0.4.0 changes nothing, so the caller still gets the (wrong)
+    # default grid until the coercion lands in 0.5.0.
+    assert out["domain"] == (-500, 500, -500, 500)
+    assert out["nx"] == np.int64(100)
+    assert resolve_grid(**out).domain == [-1000.0, 1000.0, -1000.0, 1000.0]
+
+
+def test_normalize_coerces_recoverable_arguments():
+    with pytest.warns(UserWarning):
+        out = normalize_grid_args(domain=(-500, 500, -500, 500),
+                                  nx=np.int64(100), coerce=True)
+    spec = resolve_grid(**out)
+    assert spec.domain == [-500.0, 500.0, -500.0, 500.0]
+    assert (spec.nx, spec.dx) == (100, 10.0)
+    assert isinstance(out["nx"], int) and isinstance(out["domain"], list)
+
+
+def test_normalize_is_silent_on_arguments_resolve_grid_already_accepts():
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        out = normalize_grid_args(domain=[-500.0, 500.0, -500.0, 500.0],
+                                  dx=10.0, nx=None)
+    assert out["domain"] == [-500.0, 500.0, -500.0, 500.0]
+
+
+def test_normalize_flags_an_unrecoverable_domain():
+    with pytest.warns(UserWarning, match="not a list of 4 numbers"):
+        normalize_grid_args(domain=[-500, 500], coerce=True)

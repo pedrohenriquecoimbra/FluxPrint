@@ -420,7 +420,7 @@ def empty_footprint(model="kljun2015", *, domain=None, dx=None, dy=None,
     spec_kwargs.update({k: v for k, v in kwargs.items() if k in ("nx", "ny")})
 
     resolver = getattr(model_fn, "resolve_grid", _grid.resolve_grid)
-    spec = resolver(**spec_kwargs)
+    spec = resolver(**_grid.normalize_grid_args(**spec_kwargs))
     x, y = spec.axes()
     attrs = {"model": model} if isinstance(model, str) else {}
     return Footprint(f=np.full(spec.shape, np.nan), x=x, y=y, attrs=attrs)
