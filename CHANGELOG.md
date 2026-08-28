@@ -5,14 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project aims to follow [Semantic Versioning](https://semver.org/)
 (pre-1.0: minor releases may contain breaking changes, announced here).
 
-## [0.4.0] - in progress
+## [0.4.0] - 2026-08-28
 
 The genericization release: a model is only physics. The scaffolding every
 footprint model used to copy now lives in a generic layer, and the registered
 Kljun model remains bitwise identical to the vendored reference at every
 step (CI-enforced).
 
+This release also carries the additive generic-layer API originally
+drafted as 0.3.1, which was never cut as a separate release.
+
 ### Added
+
 - `fluxprint.grid`: `GridSpec` (output shape/axes known without compute),
   `resolve_grid()` (the FFP domain/dx/dy/nx/ny reconciliation rules, hoisted
   verbatim), `GridContext` (cached cartesian + lazy polar coordinates), and
@@ -77,29 +81,6 @@ step (CI-enforced).
   `attrs`; shares arrays unless replaced). `_replace` remains as the
   internal spelling.
 
-### Fixed
-- User attrs that shadow reserved frame metadata (`crs`, `crs_wkt`,
-  `crs_proj4`, `tower_x`, `tower_y`, `tower_crs`, `n_records`) now warn and
-  are dropped at serialization instead of overriding the real frame — a
-  note like `attrs["crs"] = "WGS84"` could previously become the
-  authoritative CRS on reload. `crs_wkt`/`crs_proj4` also no longer
-  reappear as user attrs after a round-trip.
-- A series with no per-member time labels (e.g. grouped climatologies from
-  `calculate_footprint(by=<categorical>)`) now writes a *marked* index time
-  axis, and `from_xarray`/`from_netcdf` restore `time=None` instead of
-  promoting the index to fake relative labels. This also fixes the
-  write-succeeds/read-fails asymmetry: a georeferenced climatology series
-  NetCDF is now readable by the library that wrote it. Mixed per-member
-  labels degrade to the marked index with an explicit warning.
-- `calculate_footprint(on_error="nan")` gives every failed group its own
-  field array; previously all NaN slots in a series shared one buffer, so
-  editing one member in place silently rewrote the others.
-- `FootprintSeries.aggregate(smooth=True)` now stamps `attrs["smoothed"]=1`
-  and drops the members' `smooth_data`/`smoothed` attrs instead of carrying
-  `smooth_data=0` onto a field it just smoothed — which invited a second,
-  footprint-widening smoothing pass downstream.
-
-### Added
 - Release pipeline (`.github/workflows/publish.yml`): pushing a `vX.Y.Z` tag
   builds the sdist and wheel, refuses to continue if the tag does not match
   `fluxprint/version.py`, runs the full suite **against the built wheel** on
@@ -108,7 +89,38 @@ step (CI-enforced).
   uploads via PyPI Trusted Publishing (OIDC - no stored token). A manual
   `workflow_dispatch` run can target TestPyPI for a dry run.
 
+- `fluxprint.footprint.smooth_field()` and `FFP_SMOOTH_KERNEL`: the standard
+  FFP 3x3 double-convolution smoothing as a model-agnostic primitive, and
+  `Footprint.smoothed()` to apply it to any footprint.
+  `FootprintSeries.aggregate` and the deprecated `aggregate_footprints` now
+  share this single implementation.
+- `Footprint.level_for(r)`: the source-area field level for a fraction `r`,
+  without contour extraction; `Footprint.contours()` uses the same search.
+  Fractions are of the full (unit-integral) model footprint, not of the
+  captured total - the two differ on any truncated domain.
+- `Footprint.captured_fraction`: live property (equal to `total()`), the
+  generic counterpart of the model-stamped `attrs["captured_fraction"]`.
+- `fluxprint.ALIASES`: the exported table of column aliases recognized by
+  `process_footprint_inputs` (model inputs and estimator drivers), so
+  downstream integrations no longer maintain their own copy.
+
+- `fluxprint.grid.normalize_grid_args()`: reports (and, from 0.5.0, will
+  repair) the grid arguments `resolve_grid()` silently discards - a `domain`
+  that is not a 4-element `list`, or `nx`/`ny` that are not Python `int`.
+  Applied by every public entry point (`calculate_footprint`,
+  `map_footprints`, `empty_footprint`, and the `@footprint_model` call);
+  `resolve_grid()` itself is untouched and stays a verbatim reproduction of
+  the reference's reconciliation rules.
+- `model_meta` on the kernel protocol: `@footprint_model` now exposes the
+  registry provenance dict on the generated adapter, so consumers of the
+  mapped path can read a model's citation without instantiating a footprint.
+- `docs/ROADMAP.md`: where the library goes after 0.4.0 (the 0.5.0 integration
+  API, the 0.6.0 cleanup and third model, what 1.0 guarantees) and what has
+  been deliberately declined, with the reasoning. Linked from the README and
+  CONTRIBUTING; the scattered "a future release will..." notes now point at it.
+
 ### Changed
+
 - `dask` added to the `dev` extra: the lazy `map_footprints` test skips
   without it, so CI was not actually exercising the dask path.
 - The `regorator` upper bound (`<0.3`) is dropped: fluxprint uses a
@@ -140,7 +152,27 @@ step (CI-enforced).
   case-insensitively matched canonical column (e.g. `WIND_DIR`) now beats an
   exact alias column. Resolved values are consistently lists.
 
+- `process_footprint_inputs(data=...)` now raises a `TypeError` naming the
+  supported containers when `data` is neither a DataFrame nor a dict (e.g. an
+  `xarray.Dataset`); previously such input was silently ignored and the
+  computation proceeded from kwargs alone.
+
+- `resolve_grid()`-backed entry points now warn instead of silently ignoring
+  a `domain` that is not a 4-element `list`, or `nx`/`ny` that are not Python
+  `int` (e.g. `np.int64`). The resolved grid is unchanged; only the diagnosis
+  is new. From 0.5.0 these arguments will be coerced instead of ignored.
+- `map_footprints()` accepts the FFP spellings `smooth_data` and `verbosity`,
+  which the eager model call has always taken and which
+  `tests/test_downstream_contract.py` pins as supported throughout 0.x. As on
+  the eager call, `smooth` wins when both spellings are given; the mapped
+  default stays off. `verbosity` is accepted for signature parity - the mapped
+  path summarises rejections once per block rather than per record.
+- `map_footprints()` results carry the model's `model_citation`, `model_doi`
+  and `model_reference_version`, so a mapped cube is no longer less traceable
+  than a single eager `Footprint`.
+
 ### Deprecated
+
 - `fluxprint.utils.get_contour_levels()` / `get_contour_vertices()`: use
   `Footprint.level_for()` / `Footprint.contours()`.
 - `fluxprint.template.DEFAULT_ATTRS` (PEP 562 warning on access): provenance
@@ -152,7 +184,10 @@ step (CI-enforced).
   `find_utm_epsg_from_lon`, `find_middle_point`, `identify_convention`,
   `attribute_crs`, `reproject_tif`.
 
+- `fluxprint.utils.smooth_data()`: use `fluxprint.footprint.smooth_field()`.
+
 ### Removed
+
 - The unreachable `crop` block in `calc_ffp_climatology` (never reachable
   through the package API). Passing `crop`/`rs` now emits a
   `DeprecationWarning` pointing at `Footprint.contours()`/`level_for()`.
@@ -167,34 +202,42 @@ step (CI-enforced).
   importable by its full path, and `import fluxprint` no longer loads it),
   and leftover unused imports.
 
-## [0.3.1] - unreleased
+### Fixed
 
-Additive generic-layer API (the 0.3.1 fast-follow); no model files touched.
+- User attrs that shadow reserved frame metadata (`crs`, `crs_wkt`,
+  `crs_proj4`, `tower_x`, `tower_y`, `tower_crs`, `n_records`) now warn and
+  are dropped at serialization instead of overriding the real frame — a
+  note like `attrs["crs"] = "WGS84"` could previously become the
+  authoritative CRS on reload. `crs_wkt`/`crs_proj4` also no longer
+  reappear as user attrs after a round-trip.
+- A series with no per-member time labels (e.g. grouped climatologies from
+  `calculate_footprint(by=<categorical>)`) now writes a *marked* index time
+  axis, and `from_xarray`/`from_netcdf` restore `time=None` instead of
+  promoting the index to fake relative labels. This also fixes the
+  write-succeeds/read-fails asymmetry: a georeferenced climatology series
+  NetCDF is now readable by the library that wrote it. Mixed per-member
+  labels degrade to the marked index with an explicit warning.
+- `calculate_footprint(on_error="nan")` gives every failed group its own
+  field array; previously all NaN slots in a series shared one buffer, so
+  editing one member in place silently rewrote the others.
+- `FootprintSeries.aggregate(smooth=True)` now stamps `attrs["smoothed"]=1`
+  and drops the members' `smooth_data`/`smoothed` attrs instead of carrying
+  `smooth_data=0` onto a field it just smoothed — which invited a second,
+  footprint-widening smoothing pass downstream.
 
-### Added
-- `fluxprint.footprint.smooth_field()` and `FFP_SMOOTH_KERNEL`: the standard
-  FFP 3x3 double-convolution smoothing as a model-agnostic primitive, and
-  `Footprint.smoothed()` to apply it to any footprint.
-  `FootprintSeries.aggregate` and the deprecated `aggregate_footprints` now
-  share this single implementation.
-- `Footprint.level_for(r)`: the source-area field level for a fraction `r`,
-  without contour extraction; `Footprint.contours()` uses the same search.
-  Fractions are of the full (unit-integral) model footprint, not of the
-  captured total - the two differ on any truncated domain.
-- `Footprint.captured_fraction`: live property (equal to `total()`), the
-  generic counterpart of the model-stamped `attrs["captured_fraction"]`.
-- `fluxprint.ALIASES`: the exported table of column aliases recognized by
-  `process_footprint_inputs` (model inputs and estimator drivers), so
-  downstream integrations no longer maintain their own copy.
-
-### Changed
-- `process_footprint_inputs(data=...)` now raises a `TypeError` naming the
-  supported containers when `data` is neither a DataFrame nor a dict (e.g. an
-  `xarray.Dataset`); previously such input was silently ignored and the
-  computation proceeded from kwargs alone.
-
-### Deprecated
-- `fluxprint.utils.smooth_data()`: use `fluxprint.footprint.smooth_field()`.
+- `micrometeorology.filler(data, "ustar", fill_all=True)` raised `TypeError`
+  when `z0` was present but `None`. Callers commonly spell an absent variable
+  as an explicit `None`, and the entry's `needs` guard only covers the keys it
+  declares, so `d.get("z0", 0.1)` returned `None` rather than the fallback.
+  Reachable from `calculate_footprint(z0=None, fill_all=True)`, because the
+  estimation order computes `ustar` before `z0`.
+- `map_footprints()` raised `AttributeError: 'numpy.ndarray' object has no
+  attribute 'assign_coords'` when every met input was a plain scalar - the
+  all-scalar call its own docstring advertises. `apply_ufunc` returns a bare
+  ndarray when no argument is an xarray object; scalars are now promoted to
+  0-d `DataArray`s, which adds no dimensions. A plain N-d array is refused
+  with an actionable `TypeError` instead of being mis-broadcast, since names
+  invented for it cannot align with the caller's other inputs.
 
 ## [0.3.0] - 2026-08-28
 
