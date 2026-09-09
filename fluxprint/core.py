@@ -244,7 +244,7 @@ def _group_label(key):
 _MODEL_KEYS = frozenset({
     "zm", "z0", "umean", "ustar", "pblh", "mo_length", "v_sigma", "wind_dir",
     "domain", "dx", "dy", "nx", "ny", "rslayer", "smooth", "smooth_data",
-    "verbosity",
+    "verbosity", "workers",
 })
 
 

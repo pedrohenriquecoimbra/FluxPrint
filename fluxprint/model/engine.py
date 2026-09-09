@@ -20,6 +20,8 @@ protocol (``.kernel``/``.validate``/``.resolve_grid``/``.model_options``/
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, NamedTuple
 
 import numpy as np
@@ -32,8 +34,42 @@ from .base import register_model
 logger = logging.getLogger('fluxprint.model.engine')
 
 __all__ = ["NormalizedInputs", "MetRecord", "ClimResult", "listify",
-           "normalize_inputs", "ffp_validate", "run_climatology",
-           "build_footprint", "footprint_model"]
+           "normalize_inputs", "ffp_validate", "resolve_workers",
+           "run_climatology", "build_footprint", "footprint_model"]
+
+#: Auto-detection stops here: 8 threads measure 3.07x and 16 only 3.37x.
+MAX_AUTO_WORKERS = 8
+
+#: Grid-buffer budget the auto count is trimmed to: a fine grid picks fewer
+#: threads, a very fine one falls back to serial.
+WORKER_MEMORY_BUDGET = 512 << 20
+_KERNEL_GRID_ARRAYS = 8
+
+
+def resolve_workers(workers: int | None = None, *, ts_len: int,
+                    field_bytes: int) -> int:
+    """Thread count for the record loop: ``workers``, else ``FLUXPRINT_WORKERS``,
+    else ``cpu_count() - 1`` capped and trimmed to the memory budget.
+
+    Auto stays at 1 on two cores or fewer, where ``run_climatology`` takes the
+    serial path. An explicit request is trusted and never trimmed.
+    """
+    explicit = workers is not None
+    if not explicit:
+        env = os.environ.get("FLUXPRINT_WORKERS", "").strip()
+        if env:
+            try:
+                workers, explicit = int(env), True
+            except ValueError:
+                logger.warning(
+                    "Ignoring FLUXPRINT_WORKERS=%r: not an integer.", env)
+    if not explicit:
+        cpu = os.cpu_count() or 1
+        workers = 1 if cpu <= 2 else min(cpu - 1, MAX_AUTO_WORKERS)
+        affordable = WORKER_MEMORY_BUDGET // max(
+            field_bytes * _KERNEL_GRID_ARRAYS, 1)
+        workers = min(workers, affordable)
+    return max(1, min(int(workers), ts_len or 1))
 
 
 class NormalizedInputs(NamedTuple):
@@ -160,7 +196,8 @@ def ffp_validate(rec: MetRecord, opts: dict, verbosity: int, *,
 
 def run_climatology(kernel: Callable, *, ctx, inputs: NormalizedInputs,
                     opts: dict | None = None, validate: Callable = ffp_validate,
-                    smooth_data=1, pulse=None, verbosity=0) -> ClimResult:
+                    smooth_data=1, pulse=None, verbosity=0,
+                    workers: int | None = None) -> ClimResult:
     """The model-agnostic climatology loop, hoisted verbatim from the port.
 
     Per record: validate (invalid records are skipped with exception code
@@ -185,6 +222,9 @@ def run_climatology(kernel: Callable, *, ctx, inputs: NormalizedInputs,
         smooth_data: Truthy to smooth the final climatology (FFP default).
         pulse: Progress-log cadence; defaults to ~5% of the series.
         verbosity: 2 logs progress, 1 only fatal problems, 0 silent.
+        workers: Kernel threads; ``None`` auto-detects (see
+            :func:`resolve_workers`), ``1`` is serial. Bitwise identical
+            either way.
     """
     opts = {} if opts is None else opts
     flag_err = 0
@@ -204,28 +244,53 @@ def run_climatology(kernel: Callable, *, ctx, inputs: NormalizedInputs,
               for vals in zip(inputs.ustar, inputs.v_sigma, inputs.pblh,
                               inputs.mo_length, inputs.wind_dir, inputs.zm)]
 
-    records = map(MetRecord._make,
-                  zip(inputs.ustar, inputs.v_sigma, inputs.pblh,
-                      inputs.mo_length, inputs.wind_dir, inputs.zm,
-                      inputs.z0, inputs.umean))
-    for ix, rec in enumerate(records):
-        # Counter
-        if verbosity > 1 and ix % pulse == 0:
-            logger.info('Calculating footprint %d of %d', ix + 1, ts_len)
+    records = list(map(MetRecord._make,
+                       zip(inputs.ustar, inputs.v_sigma, inputs.pblh,
+                           inputs.mo_length, inputs.wind_dir, inputs.zm,
+                           inputs.z0, inputs.umean)))
+    n_workers = resolve_workers(workers, ts_len=ts_len,
+                                field_bytes=fclim_2d.nbytes)
+    pool = ThreadPoolExecutor(n_workers) if n_workers > 1 else None
+    try:
+        for start in range(0, ts_len, n_workers):
+            # Only the kernels fan out; validation and its logging stay here
+            # in record order, which a kernel's no-raise/no-log contract allows.
+            batch = []
+            for ix in range(start, min(start + n_workers, ts_len)):
+                rec = records[ix]
+                # Counter
+                if verbosity > 1 and ix % pulse == 0:
+                    logger.info('Calculating footprint %d of %d', ix + 1, ts_len)
 
-        valids[ix] = validate(rec, opts, verbosity)
+                valids[ix] = validate(rec, opts, verbosity)
 
-        # If inputs are not valid, skip current footprint
-        if not valids[ix]:
-            raise_ffp_exception(16, verbosity)
-        else:
-            f_2d, flag, valid = kernel(ctx, rec, opts)
-            if flag:
-                flag_err = flag
-            if not valid:
-                valids[ix] = 0
-            # Add to footprint climatology raster
-            fclim_2d = fclim_2d + f_2d
+                # If inputs are not valid, skip current footprint
+                if not valids[ix]:
+                    raise_ffp_exception(16, verbosity)
+                else:
+                    batch.append((ix, rec))
+
+            if pool is None:
+                fields = [kernel(ctx, rec, opts) for _, rec in batch]
+            else:
+                # Collected in submission order, so a raising kernel still
+                # surfaces at its own record index.
+                futures = [pool.submit(kernel, ctx, rec, opts)
+                           for _, rec in batch]
+                fields = [future.result() for future in futures]
+
+            # Record order: float addition is not associative, so this is
+            # what keeps the sum bitwise identical to the serial run.
+            for (ix, _), (f_2d, flag, valid) in zip(batch, fields):
+                if flag:
+                    flag_err = flag
+                if not valid:
+                    valids[ix] = 0
+                # Add to footprint climatology raster
+                fclim_2d += f_2d
+    finally:
+        if pool is not None:
+            pool.shutdown()
 
     #===========================================================================
     # Continue if at least one valid footprint was calculated
@@ -349,7 +414,7 @@ def footprint_model(name: str, *, description: str = "",
         def calc(*, zm, ustar, pblh, mo_length, v_sigma, wind_dir,
                  z0=None, umean=None, domain=None, dx=None, dy=None,
                  nx=None, ny=None, smooth=None, smooth_data=None, tower=None,
-                 tower_crs=None, time=None, verbosity=0,
+                 tower_crs=None, time=None, verbosity=0, workers=None,
                  **kwargs) -> Footprint:
             # `smooth` is the generic spelling, `smooth_data` the
             # FFP-compatible one; `smooth` wins when both are given.
@@ -372,7 +437,7 @@ def footprint_model(name: str, *, description: str = "",
             result = run_climatology(
                 kernel, ctx=GridContext(spec), inputs=inputs, opts=opts,
                 validate=validate_fn, smooth_data=smooth_data,
-                verbosity=verbosity)
+                verbosity=verbosity, workers=workers)
             return build_footprint(
                 result, name=name, meta=meta,
                 wind_profile_input="umean" if z0 is None else "z0",

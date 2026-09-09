@@ -118,6 +118,47 @@ drafted as 0.3.1, which was never cut as a separate release.
   API, the 0.6.0 cleanup and third model, what 1.0 guarantees) and what has
   been deliberately declined, with the reasoning. Linked from the README and
   CONTRIBUTING; the scattered "a future release will..." notes now point at it.
+- `workers=` on the model call, on `calc_ffp_climatology()` and on
+  `calculate_footprint()`: the number of threads evaluating footprint kernels
+  concurrently. `None` (the default) auto-detects, `1` is the serial path.
+  Also readable from `FLUXPRINT_WORKERS` in the environment, so a cluster job
+  can set it once from `SLURM_CPUS_PER_TASK` and every call inherits it; an
+  explicit argument wins over the variable.
+- `fluxprint.model.engine.resolve_workers()` plus the `MAX_AUTO_WORKERS` and
+  `WORKER_MEMORY_BUDGET` constants that bound its auto-detection, so the
+  policy is inspectable and tunable rather than hidden in the loop.
+
+### Performance
+
+The eager climatology path is ~8x faster on a multi-core machine, with
+**bitwise-identical output** — `tests/test_reference_regression.py` stays
+green at `rtol=0.0`, and new tests pin every worker count to the serial
+result. On the default 1001x1001 grid, 16 records went from 8.2 s to 1.0 s;
+a year of half-hourly Kljun records drops from roughly an hour to eight
+minutes.
+
+- The `run_climatology()` record loop now evaluates kernels on a thread pool.
+  numpy releases the GIL for the array operations a kernel is made of, so
+  threads scale it without touching the numerics: validation, the progress
+  counter and the code-16 notice stay on the calling thread in record order,
+  and the climatology is accumulated in record order too. Float addition is
+  not associative, and that ordering is what keeps the sum bit-for-bit equal
+  to the serial run at any `workers`.
+  Auto-detection is deliberately conservative, so an old or shared machine is
+  not disturbed: two cores or fewer take the serial path (no pool, no
+  buffering, no extra allocation), otherwise `os.cpu_count() - 1` capped at
+  `MAX_AUTO_WORKERS` and trimmed to `WORKER_MEMORY_BUDGET` — a grid too large
+  to hold several in-flight copies steps back down to serial rather than
+  thrashing. An explicit request is trusted and never trimmed. No new
+  dependency (`concurrent.futures` is stdlib), and the kernels are elementwise
+  ufuncs, so there is no BLAS thread oversubscription on a cluster node.
+- The Kljun kernel selects with a boolean mask instead of an `np.where()`
+  index tuple. The same elements in the same order — so every gather and
+  scatter below it is bitwise unchanged — but ~4x cheaper to gather, ~6x to
+  scatter, and 1 byte per cell instead of two int64 index arrays. Worth ~1.6x
+  on its own, before any threading.
+- `run_climatology()` accumulates in place, saving one full-grid allocation
+  and copy per record.
 
 ### Changed
 

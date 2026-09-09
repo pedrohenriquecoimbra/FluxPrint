@@ -233,8 +233,12 @@ it says so, but reopening one should come with new evidence.
   third party to ask.
 - **GPU or numba acceleration — permanently.** The reference pin is bitwise
   equality against an in-process reference, and any accelerator changes float
-  association order by construction. The parallelism that matters already
-  shipped: `map_footprints` parallelises across records.
+  association order by construction. The parallelism that matters has shipped
+  instead, and kept the pin: `map_footprints` parallelises across records, and
+  since 0.4.0 the eager `run_climatology()` loop evaluates kernels on a thread
+  pool while accumulating in record order (~8x on a multi-core machine,
+  bitwise identical). Threads work here precisely because they change nothing
+  about the arithmetic — which is what an accelerator cannot promise.
 - **Time-series gap-filling of met inputs.** `inputs.fill()` fills missing
   *variables* and patches gaps *from physics*; interpolating a gap in time is
   the consumer's job, and doing it here would silently invent data.

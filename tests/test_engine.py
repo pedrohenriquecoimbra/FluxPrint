@@ -17,7 +17,8 @@ from fluxprint.footprint import Footprint, smooth_field  # noqa: E402
 from fluxprint.grid import resolve_grid  # noqa: E402
 from fluxprint.model import (MODELS, FootprintModel, available_models,  # noqa: E402
                              footprint_model, get_model)
-from fluxprint.model.engine import listify, normalize_inputs  # noqa: E402
+from fluxprint.model.engine import (listify, normalize_inputs,  # noqa: E402
+                                    resolve_workers)
 
 SIGMA = 60.0
 
@@ -214,3 +215,74 @@ def test_shim_warns_on_deprecated_crop_and_rs():
     assert out.n == 1  # crop is ignored, the field is still computed
     with pytest.warns(DeprecationWarning, match="rs"):
         calc_ffp_climatology(**met, **GRID, rs=[0.8], verbosity=0)
+
+
+# --- the threaded record loop --------------------------------------------
+# test_reference_regression.py pins the serial path to the vendored FFP code;
+# these pin every other worker count to the serial path.
+
+_WORKER_MET = dict(
+    zm=[20.0] * 6, z0=[0.1] * 6, ustar=[0.5, 0.4, 0.3, 0.45, 0.35, 0.55],
+    pblh=[1000.0] * 6, mo_length=[-100.0, -50.0, 200.0, 1.0e6, -300.0, 80.0],
+    v_sigma=[0.5] * 6, wind_dir=[30.0, 150.0, 270.0, 0.0, 190.0, 340.0])
+
+
+@pytest.mark.parametrize("workers", [2, 3, 5, 6, 8, 16, None])
+def test_workers_leave_the_climatology_bitwise_unchanged(workers):
+    calc = get_model("kljun2015")
+    serial = calc(**_WORKER_MET, **GRID, verbosity=0, workers=1)
+    threaded = calc(**_WORKER_MET, **GRID, verbosity=0, workers=workers)
+    assert np.array_equal(serial.f, threaded.f)
+    assert np.array_equal(np.isnan(serial.f), np.isnan(threaded.f))
+    assert serial.n == threaded.n
+
+
+def test_workers_preserve_rejection_bookkeeping():
+    """Records the validator rejects must still be skipped, and only those."""
+    met = {k: list(v) for k, v in _WORKER_MET.items()}
+    met["ustar"][1] = 0.01     # below the validator's floor
+    met["v_sigma"][4] = -1.0   # non-positive
+    calc = get_model("kljun2015")
+    serial = calc(**met, **GRID, verbosity=0, workers=1)
+    threaded = calc(**met, **GRID, verbosity=0, workers=4)
+    assert serial.n == threaded.n == 4
+    assert np.array_equal(serial.f, threaded.f)
+
+
+def test_workers_are_capped_by_the_record_count_and_never_below_one():
+    assert resolve_workers(None, ts_len=1, field_bytes=8) == 1
+    assert resolve_workers(64, ts_len=3, field_bytes=8) == 3
+    assert resolve_workers(0, ts_len=10, field_bytes=8) == 1
+    assert resolve_workers(-4, ts_len=10, field_bytes=8) == 1
+
+
+def test_auto_workers_stay_serial_on_a_small_machine(monkeypatch):
+    """<= 2 cores must take the untouched serial path, pool and all."""
+    monkeypatch.delenv("FLUXPRINT_WORKERS", raising=False)
+    for cpu in (1, 2):
+        monkeypatch.setattr("os.cpu_count", lambda c=cpu: c)
+        assert resolve_workers(None, ts_len=1000, field_bytes=8) == 1
+
+
+def test_auto_workers_are_trimmed_to_the_memory_budget(monkeypatch):
+    """A grid too big to hold several copies auto-selects fewer threads."""
+    monkeypatch.delenv("FLUXPRINT_WORKERS", raising=False)
+    monkeypatch.setattr("os.cpu_count", lambda: 64)
+    from fluxprint.model import engine
+    huge = engine.WORKER_MEMORY_BUDGET  # one field already fills the budget
+    assert resolve_workers(None, ts_len=1000, field_bytes=huge) == 1
+    assert resolve_workers(None, ts_len=1000, field_bytes=1024) ==         engine.MAX_AUTO_WORKERS
+    # An explicit request is trusted, not trimmed.
+    assert resolve_workers(32, ts_len=1000, field_bytes=huge) == 32
+
+
+def test_env_var_sets_workers_and_a_bad_value_falls_back(monkeypatch, caplog):
+    monkeypatch.setattr("os.cpu_count", lambda: 16)
+    monkeypatch.setenv("FLUXPRINT_WORKERS", "12")
+    assert resolve_workers(None, ts_len=1000, field_bytes=8) == 12
+    # An explicit argument still wins over the environment.
+    assert resolve_workers(2, ts_len=1000, field_bytes=8) == 2
+    monkeypatch.setenv("FLUXPRINT_WORKERS", "not-a-number")
+    with caplog.at_level("WARNING"):
+        assert resolve_workers(None, ts_len=1000, field_bytes=8) == 8
+    assert "FLUXPRINT_WORKERS" in caplog.text

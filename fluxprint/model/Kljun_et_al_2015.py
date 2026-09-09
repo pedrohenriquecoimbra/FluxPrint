@@ -56,6 +56,8 @@ def _kljun_record(ctx, rec, opts):
     fstar_ci_dummy = np.zeros(x_2d.shape)
     f_ci_dummy = np.zeros(x_2d.shape)
     xstar_ci_dummy = np.zeros(x_2d.shape)
+    # Stays float, as in the reference: the `flag = 3` branch leaves it here
+    # and relies on the indexing below raising. Selections are boolean masks.
     px = np.ones(x_2d.shape)
     if z0 is not None:
         # Use z0
@@ -66,7 +68,7 @@ def _kljun_record(ctx, rec, opts):
             psi_f = -5.3 * zm / mo_length
         if (np.log(zm / z0)-psi_f)>0:
             xstar_ci_dummy = (rho * np.cos(rotated_theta) / zm * (1. - (zm / pblh)) / (np.log(zm / z0) - psi_f))
-            px = np.where(xstar_ci_dummy > d)
+            px = xstar_ci_dummy > d
             fstar_ci_dummy[px] = a * (xstar_ci_dummy[px] - d)**b * np.exp(-c / (xstar_ci_dummy[px] - d))
             f_ci_dummy[px] = (fstar_ci_dummy[px] / zm * (1. - (zm / pblh)) / (np.log(zm / z0) - psi_f))
         else:
@@ -75,7 +77,7 @@ def _kljun_record(ctx, rec, opts):
     else:
         # Use umean if z0 not available
         xstar_ci_dummy = (rho * np.cos(rotated_theta) / zm * (1. - (zm / pblh)) / (umean / ustar * k))
-        px = np.where(xstar_ci_dummy > d)
+        px = xstar_ci_dummy > d
         fstar_ci_dummy[px] = a * (xstar_ci_dummy[px] - d)**b * np.exp(-c / (xstar_ci_dummy[px] - d))
         f_ci_dummy[px] = (fstar_ci_dummy[px] / zm * (1. - (zm / pblh)) / (umean / ustar * k))
 
@@ -110,7 +112,8 @@ def _kljun_record(ctx, rec, opts):
 def calc_ffp_climatology(zm=None, z0=None, umean=None, pblh=None, mo_length=None, v_sigma=None, ustar=None,
                     wind_dir=None, domain=None, dx=None, dy=None, nx=None, ny=None,
                     rs=None, rslayer=0,
-                    smooth_data=1, crop=False, pulse=None, verbosity=2, **kwargs):
+                    smooth_data=1, crop=False, pulse=None, verbosity=2,
+                    workers=None, **kwargs):
     """
     Derive a flux footprint estimate based on the simple parameterisation FFP
     See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015:
@@ -212,7 +215,7 @@ def calc_ffp_climatology(zm=None, z0=None, umean=None, pblh=None, mo_length=None
     result = engine.run_climatology(
         _kljun_record, ctx=ctx, inputs=inputs, opts={"rslayer": rslayer},
         validate=engine.ffp_validate, smooth_data=smooth_data, pulse=pulse,
-        verbosity=verbosity)
+        verbosity=verbosity, workers=workers)
 
     #===========================================================================
     # Fill output structure
