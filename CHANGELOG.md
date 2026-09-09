@@ -245,6 +245,14 @@ minutes.
 
 ### Fixed
 
+- The Kljun kernel's `flag=3` branch (`log(zm/z0) <= psi_f`, i.e. strongly
+  unstable over tall roughness) no longer raises `IndexError` — it now
+  returns the documented zero field with `flag=3, valid=0`, so the record is
+  dropped from the climatology and reported via `flag_err` instead of
+  aborting the whole run. The branch is reachable with the default
+  `rslayer=0`. This is the sole deliberate divergence from the vendored
+  reference, which selects with a float placeholder there; no
+  field-producing record changes, so the bitwise reference pin is unaffected.
 - User attrs that shadow reserved frame metadata (`crs`, `crs_wkt`,
   `crs_proj4`, `tower_x`, `tower_y`, `tower_crs`, `n_records`) now warn and
   are dropped at serialization instead of overriding the real frame — a

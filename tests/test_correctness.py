@@ -510,6 +510,69 @@ def test_calculate_footprint_raises_when_all_groups_fail():
 
 
 # --------------------------------------------------------------------------- #
+# Kljun kernel: the flag=3 branch (log(zm/z0) <= psi_f)                        #
+# --------------------------------------------------------------------------- #
+# Strongly unstable with a tall roughness length: psi_f exceeds log(zm/z0), so
+# the record turns invalid mid-computation. It still passes check_ffp_inputs
+# with the default rslayer=0 (zm > 12.5*z0 and zm/L > -15.5), so this branch is
+# reachable from the public API -- and the reference crashes there with
+# IndexError because it fancy-indexes with a float placeholder.
+_FLAG3 = dict(zm=10.0, z0=0.75, mo_length=-1.0, ustar=0.5, pblh=1000.0,
+              v_sigma=0.5, wind_dir=30.0)
+_GOOD = dict(_FLAG3, mo_length=-100.0)
+
+
+def test_kljun_kernel_flags_invalid_record_instead_of_crashing():
+    pytest.importorskip("rasterio")
+    from fluxprint.grid import GridContext, resolve_grid
+    from fluxprint.model import engine
+    from fluxprint.model.Kljun_et_al_2015 import _kljun_record
+
+    assert exceptions.check_ffp_inputs(
+        ustar=_FLAG3["ustar"], sigmav=_FLAG3["v_sigma"], h=_FLAG3["pblh"],
+        ol=_FLAG3["mo_length"], wind_dir=_FLAG3["wind_dir"], zm=_FLAG3["zm"],
+        z0=_FLAG3["z0"], umean=None, rslayer=0, verbosity=0) is True
+
+    ctx = GridContext(resolve_grid(nx=100, ny=100))
+    rec = engine.MetRecord(umean=None, **_FLAG3)
+    f_2d, flag, valid = _kljun_record(ctx, rec, {})
+
+    assert (flag, valid) == (3, 0)
+    assert f_2d.shape == ctx.x_2d.shape
+    assert np.array_equal(f_2d, np.zeros_like(f_2d))
+
+
+def test_kljun_climatology_latches_flag_three_and_drops_the_record():
+    """A flag-3 record must not abort the run, nor pollute the climatology."""
+    pytest.importorskip("rasterio")
+    from fluxprint.model import get_model
+
+    model = get_model("kljun2015")
+    grid = dict(domain=[-300, 300, -300, 300], dx=10.0, verbosity=0)
+    both = model(**{k: [_GOOD[k], _FLAG3[k]] for k in _GOOD}, **grid)
+    only_good = model(**{k: [v] for k, v in _GOOD.items()}, **grid)
+
+    assert both.n == 1                       # the flag-3 record is not counted
+    assert both.attrs["flag_err"] == 3       # ... but is reported
+    assert only_good.attrs["flag_err"] == 0
+    # Its all-zero field adds nothing, so the pair equals the good record alone.
+    assert np.array_equal(both.f, only_good.f)
+
+
+def test_kljun_all_records_flagged_gives_no_footprint():
+    """n == 0 overwrites the latched 3 with 1, per the reference bookkeeping."""
+    pytest.importorskip("rasterio")
+    from fluxprint.model import get_model
+
+    fp = get_model("kljun2015")(**{k: [v] for k, v in _FLAG3.items()},
+                                domain=[-300, 300, -300, 300], dx=10.0,
+                                verbosity=0)
+    assert fp.n == 0
+    assert fp.attrs["flag_err"] == 1
+    assert np.array_equal(fp.f, np.zeros_like(fp.f))
+
+
+# --------------------------------------------------------------------------- #
 # io.read_from_url  (full geo stack)                                           #
 # --------------------------------------------------------------------------- #
 class _FakeResponse:

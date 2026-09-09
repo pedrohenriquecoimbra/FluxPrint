@@ -56,8 +56,8 @@ def _kljun_record(ctx, rec, opts):
     fstar_ci_dummy = np.zeros(x_2d.shape)
     f_ci_dummy = np.zeros(x_2d.shape)
     xstar_ci_dummy = np.zeros(x_2d.shape)
-    # Stays float, as in the reference: the `flag = 3` branch leaves it here
-    # and relies on the indexing below raising. Selections are boolean masks.
+    # Kept as in the reference, though never read: every path below either
+    # reassigns it to a boolean mask or returns first (the `flag = 3` branch).
     px = np.ones(x_2d.shape)
     if z0 is not None:
         # Use z0
@@ -72,8 +72,7 @@ def _kljun_record(ctx, rec, opts):
             fstar_ci_dummy[px] = a * (xstar_ci_dummy[px] - d)**b * np.exp(-c / (xstar_ci_dummy[px] - d))
             f_ci_dummy[px] = (fstar_ci_dummy[px] / zm * (1. - (zm / pblh)) / (np.log(zm / z0) - psi_f))
         else:
-            flag = 3
-            valid = 0
+            return np.zeros(x_2d.shape), 3, 0
     else:
         # Use umean if z0 not available
         xstar_ci_dummy = (rho * np.cos(rotated_theta) / zm * (1. - (zm / pblh)) / (umean / ustar * k))
