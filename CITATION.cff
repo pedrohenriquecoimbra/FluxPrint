@@ -25,4 +25,4 @@ keywords:
 license: EUPL-1.2
 # Bump together with fluxprint/version.py at each release (add date-released).
 version: 0.4.0
-date-released: 2026-08-28
+date-released: 2026-09-09

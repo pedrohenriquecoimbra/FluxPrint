@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project aims to follow [Semantic Versioning](https://semver.org/)
 (pre-1.0: minor releases may contain breaking changes, announced here).
 
-## [0.4.0] - 2026-08-28
+## [0.4.0] - 2026-09-09
 
 The genericization release: a model is only physics. The scaffolding every
 footprint model used to copy now lives in a generic layer, and the registered
