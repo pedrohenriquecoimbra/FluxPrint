@@ -1,5 +1,10 @@
 # FluxPrint
 
+[![PyPI](https://img.shields.io/pypi/v/fluxprint.svg)](https://pypi.org/project/fluxprint/)
+[![Python versions](https://img.shields.io/pypi/pyversions/fluxprint.svg)](https://pypi.org/project/fluxprint/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/pedrohenriquecoimbra/FluxPrint/test.yml?branch=main&label=tests)](https://github.com/pedrohenriquecoimbra/FluxPrint/actions/workflows/test.yml)
+[![License](https://img.shields.io/pypi/l/fluxprint.svg?color=blue)](LICENSE)
+
 `FluxPrint` is an open-source Python package implementing flux footprint models
 for eddy covariance data analysis. It provides footprint-model implementations
 behind a single, consistent interface so researchers can compare spatially
