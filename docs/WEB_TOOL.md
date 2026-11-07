@@ -249,6 +249,70 @@ load only when their button is clicked (69 MB with all of them).
 - Aerial tiles come from Esri and street tiles from OpenStreetMap, with attribution
   on the map. Their usage terms were not reviewed for a busy public page.
 
+## Other data sources and hosts
+
+Checked on 2026-11-07. None of this is built.
+
+### FLUXNET Shuttle
+
+A switch on the page would be easy, but the data behind it is not like ICOS zarr.
+
+| | ICOS zarr, used now | FLUXNET Shuttle |
+| --- | --- | --- |
+| Sites | 37 on the page | 338 through the ICOS hub (June 2026 snapshot), plus AmeriFlux and TERN |
+| Latest data | About two days old | Archives checked end in 2024 |
+| `mo_length`, `v_sigma`, `pblh` | Per half-hour from ETC | Not in the files, so estimated, `v_sigma` and `pblh` crudely |
+| `z - d` | From `ZL * MO_LENGTH` | Not in the files, see below |
+| Access | Zarr, column by column | One ZIP per site, about 10 MB per site-year |
+
+- **`z - d`:** sensor heights are in the archive metadata (`VAR_INFO_HEIGHT`). Canopy
+  height (`HEIGHTC`) is in the 18 European and JapanFlux archives checked, and not in
+  the 16 AmeriFlux ones, which all come from one site cluster.
+- **Baking does not fit.** The ICOS hub's 2,795 site-years come to as much as 1.6 GB
+  in the page's format, over the 1 GB GitHub Pages limit, from about 28 GB of archives
+  per rebuild.
+- **A browser cannot fetch it.** `data.icos-cp.eu` sends no CORS header, and its
+  download link sets a licence cookie first. AmeriFlux downloads can also take a
+  name and an intended use.
+
+The route that fits a static page is a file option. A visitor downloads a site with
+the Shuttle and drops the ZIP on the page, which reads `FLUXMET_HH`, estimates the
+missing inputs with `fluxprint` and asks for `z - d` when it cannot work it out.
+Nothing is hosted, so size and redistribution stop mattering, and AmeriFlux and TERN
+sites work too.
+
+The 49 ICOS sites with released data but no near-real-time data are no shortcut. Only
+GL-ZaF has every input. The others lack `PBLH`, and often `MO_LENGTH` or `V_SIGMA`.
+
+### GitHub free plan
+
+- The site is 42 MB of the 1 GB limit, and its largest file is 449 KB.
+- The data is not in git, so daily builds do not grow the repository.
+- Python comes from jsDelivr, so a visit costs GitHub about 1 MB. The soft limit is
+  100 GB a month.
+- The name `fluxprint` is free on GitHub. A free organisation with that name would
+  give `https://fluxprint.github.io/`.
+
+### Forge INRAE
+
+The page should run there, because it is static and uses relative paths, but this
+was not tried.
+
+- `https://icos_ecosystemes.pages-forge.inrae.fr/observatoire-des-flux/index.html`
+  opens with no login. It sends no content security policy that could block Pyodide,
+  and the same 10-minute cache as GitHub.
+- The link would be `https://icos_ecosystemes.pages-forge.inrae.fr/fluxprint/`. A
+  namespace with a dot in it fails TLS, so a personal namespace will not do.
+- It needs a `pages` job in `.gitlab-ci.yml` that runs `build_site.py` and moves
+  `_site` to `public`, plus a daily pipeline schedule. GitLab has no equivalent of
+  GitHub's 60-day pause.
+- Pages must be open to everyone. Another forge site redirected to a login.
+- GitLab's default limit is 100 MB per site, and the data grows by at most 20 MB a
+  year. The forge's own limit was not checked.
+- Whether forge runners can reach `zarr.icos-cp.eu` was not checked.
+- GitLab's pull mirroring is a paid feature and push mirroring is free. So either
+  push to both remotes, or work on the forge and mirror to GitHub.
+
 ## Existing tools
 
 - [FFP Online](https://footprint.kljun.net/): you upload a time series and get
