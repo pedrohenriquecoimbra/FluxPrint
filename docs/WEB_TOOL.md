@@ -73,8 +73,10 @@ to 1 November 2026 (FR-Fon to 2 November):
 - At forests only 5 to 9% of half-hours pass, and those are the ones with the lowest
   estimated `z0`, so the result is not a representative climatology. When fewer than
   half pass, the page says so and gives the most common reason.
-- `hsieh2000` has no `rslayer` option, so the page cannot relax this check. Changing
-  that needs a `fluxprint` release.
+- The page cannot relax this check yet. `hsieh2000` has an `rslayer` option on `main`,
+  but the page runs the published 0.4.0. Using it takes a `fluxprint` release, the new
+  version in `PACKAGES`, `rslayer=1` passed from `tool.py`, a new `reach` in `app.js`
+  and a note that the result is a rough estimate at forests.
 - Hsieh reaches 2 to 5 times further, so the automatic map area is wider for it
   (`reach` in `app.js`).
 
@@ -200,8 +202,9 @@ The first four columns are medians of estimated over ETC. `L` has the same sign 
 the change in reach comes from `z - d`, and the rest partly cancels it. Five sites and
 one month each is a spot check, not a validation.
 
-`compute_pblh` gives a negative height south of the equator, so `fluxnet.py` passes it
-the latitude's absolute value. The published 0.4.0 still has this.
+`compute_pblh` in the published 0.4.0 gives a negative height south of the equator, so
+`fluxnet.py` passes it the latitude's absolute value. `main` has the fix, so this can
+go once a release reaches `PACKAGES`.
 
 ### `z - d`
 
@@ -425,6 +428,10 @@ expect 6 to 14 ms.
 - Run stays blocked until `z - d`, latitude and longitude are given. Cancel during
   reading, dropping a file on the page and a `shuttle=` link. The phone layout.
 - `build_site.py` for one site in a clean environment with only the workflow's packages.
+- On the three branches merged: FR-Fon as above, all 82 cases, and AU-Ade read from TERN
+  on the final code (1,258 of 1,400 with Kljun, 29 with Hsieh).
+- Markup in a file's name stays text in the map's tooltip. It used to run as script
+  when the marker was hovered, because Leaflet shows a string as HTML.
 
 Not tested: the workflow on GitHub itself, the job on the forge, other browsers, a real
 file dialog (the tests hand the page a `File`), a folder dropped on the page, a download
@@ -506,12 +513,19 @@ the FLUXNET Shuttle tab they do work, with the estimates above.
 `.gitlab-ci.yml` publishes the same build with GitLab Pages. The page should run
 there, because it is static and uses relative paths, but the job has not run yet.
 
+`test.yml` already mirrors GitHub to the forge. Once the tests pass, it pushes to the
+project in the `INRAE_FORGE_REPO` secret, as it last did on 2026-09-10. So the job
+reaches that project with the next push to GitHub, and no second remote is needed.
+GitHub does not show a secret's value, so find the project on the forge: it holds the
+deploy key `github-actions-inrae-mirror`.
+
 To set it up:
 
-1. Create a project `fluxprint` in the `icos_ecosystemes` group. The link is then
-   `https://icos_ecosystemes.pages-forge.inrae.fr/fluxprint/`.
-2. Push the repository to it. This machine has no SSH key, so use HTTPS.
-3. Follow the two setup lines at the top of `.gitlab-ci.yml`: public Pages and a
+1. The project's group sets the link. For
+   `https://icos_ecosystemes.pages-forge.inrae.fr/fluxprint/` it must be `fluxprint`
+   in the `icos_ecosystemes` group. If it is elsewhere, create that project, give it
+   the deploy key with write access and point the secret at it.
+2. Follow the two setup lines at the top of `.gitlab-ci.yml`: public Pages and a
    daily schedule.
 
 What is known so far:
@@ -526,8 +540,7 @@ What is known so far:
   year. The forge's own limit was not checked.
 - Whether forge runners can reach `zarr.icos-cp.eu` was not checked. If they cannot,
   the build stops and whatever is published stays online.
-- GitLab's pull mirroring is a paid feature and push mirroring is free. So either
-  push to both remotes, or work on the forge and mirror to GitHub.
+- GitLab's pull mirroring is a paid feature, so the mirror stays a push from GitHub.
 
 ## Existing tools
 
