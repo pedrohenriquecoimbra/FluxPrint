@@ -10,3 +10,4 @@ dist/
 .vscode/
 *.nc
 *.tif
+_site/

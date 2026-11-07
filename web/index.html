@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FluxPrint: footprints for ICOS sites</title>
+  <meta name="description" content="Pick an ICOS ecosystem site and any dates, compute the flux footprint in your browser, see it on a map and download it.">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="panel">
+    <header>
+      <h1>FluxPrint</h1>
+      <p>Pick an ICOS site and dates. The footprint is computed in this browser tab with the
+        <a href="https://github.com/pedrohenriquecoimbra/FluxPrint">fluxprint</a> package, so nothing is
+        installed on your computer.</p>
+    </header>
+
+    <form id="form">
+      <label>Site
+        <select id="site" required><option value="">Choose a site, or click the map</option></select>
+      </label>
+      <p class="hint" id="coverage"></p>
+
+      <div class="row">
+        <label>From <input type="date" id="from" required></label>
+        <label>To <input type="date" id="to" required></label>
+      </div>
+      <div class="chips" id="presets">
+        <button type="button" data-days="1">Last day</button>
+        <button type="button" data-days="30">Last 30 days</button>
+        <button type="button" data-days="365">Last year</button>
+      </div>
+
+      <div class="row">
+        <label>Hours
+          <select id="hours">
+            <option value="all">All</option>
+            <option value="day">Day (06 to 18 h)</option>
+            <option value="night">Night (18 to 06 h)</option>
+          </select>
+        </label>
+        <label>Map area
+          <select id="half">
+            <option value="auto">Automatic</option>
+            <option value="250">500 m wide</option>
+            <option value="500">1 km wide</option>
+            <option value="1000">2 km wide</option>
+            <option value="2000">4 km wide</option>
+            <option value="4000">8 km wide</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <button type="submit" id="run" class="primary" disabled>Run whole period</button>
+        <button type="button" id="steps" class="secondary" disabled>Step half-hours</button>
+      </div>
+    </form>
+
+    <div id="progress" class="progress" hidden>
+      <p id="status" role="status"></p>
+      <div class="bar"><div id="fill"></div></div>
+      <button type="button" id="cancel" class="link">Cancel</button>
+    </div>
+    <p id="message" class="message" role="alert" hidden></p>
+
+    <section id="results" hidden>
+      <h2 id="result-title"></h2>
+      <dl id="stats"></dl>
+      <ul id="notes" class="notes"></ul>
+      <div id="export">
+        <h3>Download</h3>
+        <div class="chips" id="downloads">
+          <button type="button" data-kind="geojson">GeoJSON</button>
+          <button type="button" data-kind="netcdf">NetCDF</button>
+          <button type="button" data-kind="geotiff">GeoTIFF</button>
+          <button type="button" data-kind="shapefile">Shapefile</button>
+        </div>
+      </div>
+      <h3>Cite</h3>
+      <ul id="citations" class="citations"></ul>
+    </section>
+
+    <footer id="footer"></footer>
+  </aside>
+
+  <div class="stage">
+    <main id="map" aria-label="Map of ICOS sites and the computed footprint"></main>
+    <section id="timeline" class="timeline" aria-label="Half-hour by half-hour" hidden>
+      <div class="transport">
+        <button type="button" id="back" aria-label="Previous half-hour">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h2v11H3zM13 2.5v11L6 8z"/></svg>
+        </button>
+        <button type="button" id="play" aria-label="Play">
+          <svg class="start" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11L13.5 8z"/></svg>
+          <svg class="pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>
+        </button>
+        <button type="button" id="next" aria-label="Next half-hour">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5v11L10 8zM11 2.5h2v11h-2z"/></svg>
+        </button>
+      </div>
+      <input type="range" id="scrub" min="0" value="0" aria-label="Half-hour">
+      <p id="when"></p>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
