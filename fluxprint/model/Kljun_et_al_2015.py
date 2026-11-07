@@ -116,7 +116,7 @@ def calc_ffp_climatology(zm=None, z0=None, umean=None, pblh=None, mo_length=None
     """
     Derive a flux footprint estimate based on the simple parameterisation FFP
     See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015:
-    The simple two-dimensional parameterisation for Flux Footprint Predictions FFP.
+    A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP).
     Geosci. Model Dev. 8, 3695-3713, doi:10.5194/gmd-8-3695-2015, for details.
     contact: natascha.kljun@cec.lu.se
 
@@ -228,7 +228,7 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, pblh=None, mo_length=None, v
     """
     Derive a flux footprint estimate based on the simple parameterisation FFP
     See Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid, 2015: 
-    The simple two-dimensional parameterisation for Flux Footprint Predictions FFP.
+    A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP).
     Geosci. Model Dev. 8, 3695-3713, doi:10.5194/gmd-8-3695-2015, for details.
     contact: natascha.kljun@cec.lu.se
 

@@ -292,8 +292,8 @@ copyright (C) 2015–2023 Natascha Kljun.
 
 ## Acknowledgments
 
-- Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015): *The simple
-  two-dimensional parameterisation for Flux Footprint Predictions (FFP)*,
+- Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015): *A simple
+  two-dimensional parameterisation for Flux Footprint Prediction (FFP)*,
   Geosci. Model Dev. 8, 3695–3713, doi:10.5194/gmd-8-3695-2015.
 - Hsieh, C.-I., Katul, G., Chi, T. (2000): *An approximate analytical model for
   footprint estimation of scalar fluxes in thermally stratified atmospheric
