@@ -6,6 +6,7 @@ const DAY = 86400e3;
 const COLUMNS = 8;
 const WIDTH = COLUMNS - 1;      // model inputs per row, without the time column
 const FRAME_TIME = 120;         // ms; the shortest time a half-hour stays on screen while playing
+const SUBLAYER_NOTE = 0.1;      // share of half-hours in the roughness sublayer from which the page warns
 const FILE = "file";            // the key of a loaded file among the sites
 const SITE_CODE = /[A-Z]{2}-[A-Za-z0-9]{3}/;
 const OWN_FILE = "A ZIP or CSV in FLUXNET format, with the columns of FLUXMET_HH. It stays in this browser: nothing is uploaded. You can also drop it on the page.";
@@ -20,7 +21,7 @@ const LINES = { 0.5: "#ffffff", 0.8: "#ffe066", 0.9: "#ff9f1c" };
 // Light to dark along a yellow to red ramp, readable over aerial imagery.
 const RAMP = [[255, 240, 120], [255, 190, 60], [245, 120, 40], [215, 50, 40], [140, 10, 60]];
 // `reach`: how far to draw, in multiples of z - d. At four sites in October 2026 the 90% contour reached 47 to 91 with
-// Kljun and 111 to 338 with Hsieh.
+// Kljun and 88 to 323 with Hsieh.
 const MODELS = {
   kljun2015: {
     name: "Kljun et al. 2015",
@@ -610,8 +611,16 @@ function noRows({ file, sources }) {
   return `No ${file.unit} with every input for these dates and hours. The file's usable ${file.unit} run from ${start} to ${end}, possibly with gaps.`;
 }
 
+// Hsieh runs with rslayer=1, so half-hours inside the roughness sublayer count. At SE-Deg, at about 5%, they move its
+// 90% reach by 1 m, and at forests, at over 90%, they are nearly all of the result.
+function sublayerNote({ sublayer, records }) {
+  if (!(sublayer >= SUBLAYER_NOTE)) return [];
+  const which = records === 1 ? "This half-hour is" : `About ${Math.round(sublayer * 100)}% of these half-hours are`;
+  return [`${which} in the roughness sublayer, with z - d below 12.5 z0, outside what this model was made for. Treat the footprint as a rough estimate.`];
+}
+
 function periodNotes(summary) {
-  const notes = [];
+  const notes = sublayerNote(summary);
   if (summary.used < 10) notes.push("Very few half-hours: this is not a climatology.");
   if (summary.used < summary.records / 2 && summary.reason) {
     notes.push(`Only ${Math.round((100 * summary.used) / summary.records)}% of the half-hours passed the model's checks. Most common reason: ${summary.reason}`);
@@ -703,7 +712,7 @@ async function showStep(stepper, index) {
   if (summary.used) {
     current = { site: stepper.site, name: site.id ?? stepper.site, from: when, to: when, label: `${when.replace(" ", "T").replace(":", "")}_${summary.model}`, summary };
     drawFootprint(site, result);
-    showResults({ ...view, rows: [...weather, ...footprintRows(summary)], notes: [] });
+    showResults({ ...view, rows: [...weather, ...footprintRows(summary)], notes: sublayerNote(summary) });
   } else {
     current = null;
     clearFootprint();
@@ -823,7 +832,10 @@ function contoursAsGeoJson() {
   })));
   const citation = sourcesFor(site, current.from, current.to).map((source) => source.citation).join(" | ");
   const { model } = current.summary;
-  return JSON.stringify({ type: "FeatureCollection", citation, model, model_citation: MODELS[model].citations.join(" | "), ...fileProvenance(site), features });
+  return JSON.stringify({
+    type: "FeatureCollection", citation, model, model_citation: MODELS[model].citations.join(" | "),
+    warning: sublayerNote(current.summary)[0], ...fileProvenance(site), features,
+  });
 }
 
 async function download(kind, button) {

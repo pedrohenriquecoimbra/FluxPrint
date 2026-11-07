@@ -59,25 +59,32 @@ model, and a shared link keeps it (`model=`).
 `calculate_footprint` uses, from `umean`, `ustar`, `zm` and `mo_length`. The package
 marks that estimate as not yet validated.
 
-The estimate decides how much of a period survives, because the checks reject
-`zm <= 12.5 * z0`. `kljun2015` with `umean` never meets that check. For 4 October
-to 1 November 2026 (FR-Fon to 2 November):
+The estimate matters because `zm <= 12.5 * z0` is the roughness sublayer, which the
+package's checks reject by default. `kljun2015` with `umean` never meets that check,
+but for `hsieh2000` it left only 5 to 9% of half-hours at forests. So the page runs
+`hsieh2000` with `rslayer=1`, which computes those half-hours with the same equations.
+For 4 October to 1 November 2026 (FR-Fon to 2 November):
 
-| Site | Median `z - d` | Median `z0` | Used, Kljun | Used, Hsieh | 90% reach, Kljun | 90% reach, Hsieh |
-| --- | --- | --- | --- | --- | --- | --- |
-| FR-Fon, forest | 20.4 m | 3.79 m | 1,297 of 1,392 | 73 | 959 m | 2,263 m |
-| FI-Hyy, forest | 11.2 m | 1.57 m | 1,319 of 1,364 | 119 | 538 m | 2,805 m |
-| FR-Gri, crop | 0.9 m | 0.01 m | 1,026 of 1,355 | 867 | 78 m | 290 m |
-| SE-Deg, mire | 2.9 m | 0.04 m | 1,197 of 1,367 | 1,168 | 255 m | 926 m |
+| Site | Median `z - d` | Median `z0` | Used, Kljun | Used, Hsieh | In the sublayer | 90% reach, Kljun | 90% reach, Hsieh |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| FR-Fon, forest | 20.4 m | 3.79 m | 1,297 of 1,392 | 1,208 | 91% | 959 m | 1,790 m |
+| FI-Hyy, forest | 11.2 m | 1.57 m | 1,319 of 1,364 | 1,308 | 90% | 538 m | 1,218 m |
+| FR-Gri, crop | 0.9 m | 0.01 m | 1,026 of 1,355 | 1,024 | 17% | 78 m | 277 m |
+| SE-Deg, mire | 2.9 m | 0.04 m | 1,197 of 1,367 | 1,196 | 5% | 255 m | 927 m |
 
-- At forests only 5 to 9% of half-hours pass, and those are the ones with the lowest
-  estimated `z0`, so the result is not a representative climatology. When fewer than
+- Nothing corrects for the sublayer, so at forests the result is a rough estimate. From
+  10% of half-hours the page warns, for a period and for one half-hour, and the exports
+  say so (`warning` in the GeoJSON, `roughness_sublayer` in the others). Below that it
+  says nothing: at SE-Deg the 90% reach moves by 1 m.
+- The share is of half-hours with `z0` below `zm`, whether or not they pass the other
+  checks, so the page says "about". Of the half-hours used it is 94, 91, 15 and 2%.
+- A half-hour with `z0` at or above `zm` has no footprint, and the page gives that as
+  its reason. There were 133 at FR-Fon, all stable, where `compute_z0` runs away. The
+  model logs nothing for them, so `tool.py` counts them itself.
+- Without `rslayer`, Hsieh used 73 half-hours at FR-Fon and 119 at FI-Hyy, those with
+  the lowest estimated `z0`, and its 90% reach was 2,263 m and 2,805 m. When fewer than
   half pass, the page says so and gives the most common reason.
-- The page cannot relax this check yet. `hsieh2000` has an `rslayer` option on `main`,
-  but the page runs the published 0.4.0. Using it takes a `fluxprint` release, the new
-  version in `PACKAGES`, `rslayer=1` passed from `tool.py`, a new `reach` in `app.js`
-  and a note that the result is a rough estimate at forests.
-- Hsieh reaches 2 to 5 times further, so the automatic map area is wider for it
+- Hsieh reaches 2 to 4 times further, so the automatic map area is wider for it
   (`reach` in `app.js`).
 
 ## FLUXNET Shuttle and your own file
@@ -201,10 +208,6 @@ The first four columns are medians of estimated over ETC. `L` has the same sign 
 98% of half-hours. `pblh` is far too high, but it barely moves the footprint: most of
 the change in reach comes from `z - d`, and the rest partly cancels it. Five sites and
 one month each is a spot check, not a validation.
-
-`compute_pblh` in the published 0.4.0 gives a negative height south of the equator, so
-`fluxnet.py` passes it the latitude's absolute value. `main` has the fix, so this can
-go once a release reaches `PACKAGES`.
 
 ### `z - d`
 
@@ -395,9 +398,13 @@ expect 6 to 14 ms.
   half-hour. NetCDF, GeoTIFF and Shapefile from a period were also reopened and
   read correctly in the earlier browser test.
 - `build_site.py` in a clean environment with only the workflow's packages.
-- `hsieh2000` at FR-Fon, 4 October to 2 November 2026: records used, median `z0`,
-  peak, reach and area shown by the page match a separate native run on the same
-  baked file. `kljun2015` gives the same numbers as before the model choice.
+- `hsieh2000` at the four sites above, on a locally built 0.4.1 wheel: records used and
+  90% reach shown by the page match a separate native run on the same baked files, and
+  the warning appears only at FR-Fon, FI-Hyy and FR-Gri. `kljun2015` gives the same
+  numbers as before the model choice. AU-Ade gives the same result with `compute_pblh`
+  taking its negative latitude as with the old workaround.
+- Stepping at FR-Fon on 4 October 2026: the warning at 00:00, no footprint with its
+  reason at 01:00, and no warning at 09:00. The GeoJSON and NetCDF carry the warning.
 - `hsieh2000` while stepping at FR-Gri: a shared link with `model=` and `at=`, a
   rejected half-hour, and all four downloads, each naming the model and its citation.
   The timeline closes when the model changes. A day where nothing passes gives the

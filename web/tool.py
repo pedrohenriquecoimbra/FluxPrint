@@ -27,6 +27,8 @@ FRACTIONS = (0.5, 0.8, 0.9)
 footprint = None
 provenance = {}
 rejections = Counter()      # the engine's reasons for skipping records
+SUBLAYER_TOP = 12.5         # in z0, as the package's own check has it
+NO_FOOTPRINT = "the estimated z0 is at or above zm, where the model has no footprint."
 
 
 class EngineLog(logging.Handler):
@@ -74,17 +76,26 @@ def run(options):
     warnings.simplefilter("ignore")
     profile = dict(umean=umean)
     if model == "hsieh2000":    # it has no umean mode, so it gets z0 as calculate_footprint would estimate it
-        profile = dict(z0=compute_z0(umean, ustar, zm, ol=mo_length))
+        # rslayer=1 computes half-hours inside the roughness sublayer. Rejecting them left 5 to 9% at forests.
+        profile = dict(z0=compute_z0(umean, ustar, zm, ol=mo_length), rslayer=1)
         provenance["z0"] = "estimated per half-hour from umean, ustar, zm and mo_length"
     footprint = get_model(model)(
         zm=zm, ustar=ustar, pblh=pblh, mo_length=mo_length, v_sigma=v_sigma, wind_dir=wind_dir, **profile,
         dx=2 * half / CELLS, domain=[-half, half, -half, half], verbosity=2, pulse=max(1, len(rows) // 50),
         tower=(options["lon"], options["lat"]), tower_crs="EPSG:4326")
+    z0 = profile.get("z0")
+    if z0 is not None and (z0 >= zm).any():     # the model drops these without logging them
+        rejections[NO_FOOTPRINT] += int((z0 >= zm).sum())
     summary = dict(used=int(footprint.n), records=len(rows), version=__version__, model=model,
                    reason=rejections.most_common(1)[0][0] if rejections else None)
-    if "z0" in profile:
-        z0 = float(np.nanmedian(profile["z0"]))
-        summary["z0"] = z0 if np.isfinite(z0) else None     # JSON has no NaN
+    if z0 is not None:
+        median = float(np.nanmedian(z0))
+        summary["z0"] = median if np.isfinite(median) else None     # JSON has no NaN
+        below = z0 < zm
+        if below.any():
+            summary["sublayer"] = float((zm[below] <= SUBLAYER_TOP * z0[below]).mean())
+            provenance["roughness_sublayer"] = (f"computed with rslayer=1. About {summary['sublayer']:.0%} of the half-hours "
+                                                "are inside it, where the result is a rough estimate.")
     if not summary["used"]:
         return json.dumps(summary)
 
