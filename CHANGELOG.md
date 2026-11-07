@@ -7,12 +7,28 @@ and the project aims to follow [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added
+
+- `hsieh2000` takes the `rslayer` option `kljun2015` has. The default stays 0,
+  so results do not change unless a caller asks. With `rslayer=1` a record
+  with `zm <= 12.5 * z0` is computed instead of rejected. That limit is the
+  check of Kljun's FFP, not part of Hsieh et al. (2000); the equations do not
+  change. Until now the model call ignored `rslayer` without saying so and
+  `map_footprints` refused it. `Footprint.attrs` now records the value for this
+  model.
+
 ### Fixed
 
 - `compute_pblh` no longer returns a negative height south of the equator. It
   divided `ustar` by the signed Coriolis parameter, so the models rejected
   every record there (`pblh <= 10`). It now uses `|f|`, with the same `f_min`
   floor near the equator. Heights north of the equator do not change.
+- `hsieh2000` no longer treats `zm <= z0` as a footprint. Hsieh Eq 13.5 has no
+  meaning there, yet `zu` grows again below `z0`, so `peak_distance()` returned
+  a plausible distance; it now returns NaN. Under `rslayer=1` such a record is
+  dropped with `flag=3, valid=0`, as the Kljun kernel does for
+  `log(zm/z0) <= psi_f`. Validation already rejected these records by default,
+  so no field changes.
 - The `kljun2015` `model_citation` gives the paper's title correctly: "A simple
   two-dimensional parameterisation", not "The simple".
 

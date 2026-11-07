@@ -24,6 +24,18 @@ Inputs follow the canonical model signature. ``z0`` is required (the model
 has no ``umean`` mode — records without ``z0`` are rejected), and ``pblh``
 participates only in input validation (``zm > pblh`` is rejected), not in
 the footprint equations.
+
+``rslayer`` (default 0) is the option of the same name in ``kljun2015``. By
+default a record with ``zm <= 12.5 * z0`` is rejected; ``rslayer=1`` computes
+it. That limit is the roughness-sublayer check of Kljun's FFP, which this
+model inherits through the shared input validation: it is not in Hsieh et al.
+(2000). The option lifts the check and nothing else, so the equations stay the
+same and nothing accounts for the sublayer. As ``z0`` nears ``zm``, ``zu``
+falls to zero and the footprint collapses onto the tower, inside the first
+grid cell, where the grid cannot sample it: ``captured_fraction`` shows the
+loss. At ``zm <= z0`` the model has no footprint at all, so even with
+``rslayer=1`` such a record is dropped (``flag_err=3``) and
+:func:`peak_distance` returns NaN.
 """
 import numpy as np
 
@@ -47,14 +59,21 @@ _STAB_THRESHOLD = 0.04
 
 
 def _hsieh_params(zm, z0, mo_length):
-    """``(zu, D, P, A)`` for one record.
+    """``(zu, D, P, A)`` for one record, all NaN if it has no footprint.
 
     ``zu`` is the height scale of Hsieh Eq 13.5; ``A = D zu**P |L|**(1-P) /
     k**2`` is the along-wind length scale that carries the whole
     crosswind-integrated footprint: ``f_ci(x) = (A / x**2) exp(-A / x)``,
     cumulative ``F(x) = exp(-A / x)``, peak at ``A / 2`` (Eq 19).
+
+    Eq 13.5 is the log wind profile integrated from ``z0`` up to ``zm``, so
+    it means nothing for ``zm <= z0``: it is zero at ``zm == z0`` and grows
+    again below that, which would pass for a real footprint. Just above
+    ``z0``, rounding can also leave ``zu <= 0``.
     """
     zu = zm * (np.log(zm / z0) - 1 + z0 / zm)
+    if zm <= z0 or zu <= 0:
+        return np.nan, np.nan, np.nan, np.nan
     stab = zu / mo_length
     if stab < -_STAB_THRESHOLD:
         D, P = _STABILITY["unstable"]
@@ -70,7 +89,8 @@ def peak_distance(*, zm, z0, mo_length):
     """Upwind distance of the footprint maximum [m] (Hsieh 2000, Eq 19).
 
     The most common single number asked of a footprint model — the fetch of
-    peak contribution — available without computing a field.
+    peak contribution — available without computing a field. NaN for
+    ``zm <= z0``, where the model has no footprint.
     """
     return _hsieh_params(zm, z0, mo_length)[3] / 2.0
 
@@ -90,8 +110,14 @@ def _hsieh_record(ctx, rec, opts):
     (x / z0)**0.86`` from Detto Eq B4, evaluated at the wind-frame
     coordinates of the output grid (along-wind positive toward the wind
     source, i.e. the fetch).
+
+    Returns ``(f_2d, flag, valid)``; ``flag=3`` marks a record with no
+    footprint (``zm <= z0``), which validation lets through only under
+    ``rslayer=1``.
     """
     _zu, _D, _P, A = _hsieh_params(rec.zm, rec.z0, rec.mo_length)
+    if np.isnan(A):
+        return np.zeros(ctx.x_2d.shape), 3, 0
 
     along, cross = to_wind_frame(ctx.x_2d, ctx.y_2d, rec.wind_dir)
     f_2d = np.zeros(ctx.x_2d.shape)
@@ -127,4 +153,18 @@ calc = footprint_model(
                  "Detto et al. (2006) crosswind expansion"),
     meta=HSIEH_META,
     validate=_hsieh_validate,
+    options=("rslayer",),
+    defaults={"rslayer": 0},
 )(_hsieh_record)
+
+calc.__doc__ = """Hsieh et al. (2000) footprint as a :class:`~fluxprint.footprint.Footprint`.
+
+    Takes the arguments of ``kljun2015``, except that ``z0`` is required
+    (there is no ``umean`` mode).
+
+    Args:
+        rslayer: Set ``1`` to compute records with ``zm <= 12.5 * z0`` instead
+            of rejecting them. The limit is the check of Kljun's FFP, not part
+            of Hsieh et al. (2000), and the equations do not change. Records
+            with ``zm <= z0`` are dropped either way. See the module docstring.
+    """
