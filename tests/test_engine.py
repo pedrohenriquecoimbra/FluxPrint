@@ -112,6 +112,26 @@ def test_toy_model_gets_grid_provenance_and_captured_fraction(toy_model):
     assert fp.attrs["smooth_data"] == 0
 
 
+def test_reach_and_needs_z0_default_to_undeclared(toy_model):
+    assert toy_model.reach is None
+    assert toy_model.needs_z0 is False
+
+
+def test_reach_and_needs_z0_stay_out_of_provenance():
+    @footprint_model("toy_declared", reach=120, needs_z0=True,
+                     meta={"model_doi": "10.0000/toy"})
+    def kernel(ctx, rec, opts):
+        return _gauss_field(ctx), 0, 1
+
+    try:
+        model = get_model("toy_declared")
+        assert (model.reach, model.needs_z0) == (120, True)
+        assert model.model_meta == {"model_doi": "10.0000/toy"}
+        assert not {"reach", "needs_z0"} & set(model(**MET, **GRID).attrs)
+    finally:
+        MODELS.pop("toy_declared", None)
+
+
 def test_toy_model_smoothing_uses_the_generic_kernel(toy_model):
     raw = toy_model(**MET, **GRID, smooth_data=0, verbosity=0)
     smoothed = toy_model(**MET, **GRID, smooth_data=1, verbosity=0)

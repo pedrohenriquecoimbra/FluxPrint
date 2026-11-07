@@ -5,6 +5,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project aims to follow [Semantic Versioning](https://semver.org/)
 (pre-1.0: minor releases may contain breaking changes, announced here).
 
+## [Unreleased]
+
+### Added
+
+- `footprint_model` takes `reach` and `needs_z0`, set on the model: how far its
+  90% source area usually extends in multiples of `zm`, and whether it has no
+  `umean` mode. `kljun2015` declares a reach of 75, `hsieh2000` 200 and
+  `needs_z0=True`. Neither goes into `attrs`, so outputs do not change. The web
+  page reads both from the registry.
+
 ## [0.4.1] - 2026-11-07
 
 ### Added

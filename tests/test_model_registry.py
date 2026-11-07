@@ -48,6 +48,22 @@ def test_kljun_satisfies_protocol():
     assert isinstance(kljun_calc, FootprintModel)
 
 
+def test_models_declare_their_reach_and_whether_they_need_z0():
+    assert (kljun_calc.reach, kljun_calc.needs_z0) == (75, False)
+    hsieh = get_model("hsieh2000")
+    assert (hsieh.reach, hsieh.needs_z0) == (200, True)
+
+
+@pytest.mark.parametrize("name", available_models())
+def test_needs_z0_says_what_the_model_does(name):
+    # The web page passes the input a model declares, so a model with no umean
+    # mode that did not say so would reject every record there.
+    model = get_model(name)
+    fp = model(zm=10.0, umean=3.0, ustar=0.5, pblh=1000.0, mo_length=-100.0,
+               v_sigma=0.5, wind_dir=0.0, dx=20.0, domain=[-200, 200, -200, 200])
+    assert fp.n == (0 if model.needs_z0 else 1)
+
+
 # --------------------------------------------------------------------------- #
 # Kljun adapter (runs the real model)                                         #
 # --------------------------------------------------------------------------- #

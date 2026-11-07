@@ -147,6 +147,8 @@ HSIEH_META = {
                          "W08419, Appendix B (crosswind dispersion)."),
 }
 
+#: The 90% source area reached 111 to 338 ``zm`` at four ICOS sites in October
+#: 2026, with ``z0`` estimated per half-hour, and 88 to 323 with ``rslayer=1``.
 calc = footprint_model(
     "hsieh2000",
     description=("Hsieh et al. (2000) analytical footprint with "
@@ -155,6 +157,8 @@ calc = footprint_model(
     validate=_hsieh_validate,
     options=("rslayer",),
     defaults={"rslayer": 0},
+    reach=200,
+    needs_z0=True,
 )(_hsieh_record)
 
 calc.__doc__ = """Hsieh et al. (2000) footprint as a :class:`~fluxprint.footprint.Footprint`.

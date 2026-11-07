@@ -373,7 +373,8 @@ def build_footprint(result: ClimResult, *, name: str,
 def footprint_model(name: str, *, description: str = "",
                     meta: dict | None = None, validate: Callable | None = None,
                     options: tuple = (), defaults: dict | None = None,
-                    log: logging.Logger | None = None):
+                    log: logging.Logger | None = None,
+                    reach: float | None = None, needs_z0: bool = False):
     """Register a per-record kernel as a complete footprint model.
 
     The decorated function is only the physics::
@@ -405,6 +406,13 @@ def footprint_model(name: str, *, description: str = "",
         defaults: Default values for ``options`` entries.
         log: Logger for the truncation warning (see :func:`build_footprint`);
             pass the model module's logger to keep warnings attributed to it.
+        reach: How far the 90% source area usually extends, in multiples of
+            ``zm``, or ``None`` if not known. A hint for sizing a map, set on
+            the model and not stamped into outputs, unlike ``meta``.
+        needs_z0: ``True`` for a model with no ``umean`` mode, so that a caller
+            holding only ``umean`` knows to estimate ``z0`` first. This only
+            declares it, also on the model alone: ``validate`` still has to
+            reject a record without ``z0``.
     """
     meta = dict(meta or {})
     validate_fn = ffp_validate if validate is None else validate
@@ -457,6 +465,7 @@ def footprint_model(name: str, *, description: str = "",
         calc.validate = validate_fn
         calc.model_options = tuple(options)
         calc.option_defaults = dict(option_defaults)
-        return register_model(name, description=description, **meta)(calc)
+        return register_model(name, description=description, reach=reach,
+                              needs_z0=needs_z0, **meta)(calc)
 
     return decorator
