@@ -75,16 +75,17 @@ def run(options):
     rejections.clear()
     warnings.simplefilter("ignore")
     profile = dict(umean=umean)
-    if model == "hsieh2000":    # it has no umean mode, so it gets z0 as calculate_footprint would estimate it
-        # rslayer=1 computes half-hours inside the roughness sublayer. Rejecting them left 5 to 9% at forests.
-        profile = dict(z0=compute_z0(umean, ustar, zm, ol=mo_length), rslayer=1)
+    if options["needs_z0"]:     # no umean mode, so it gets z0 as calculate_footprint would estimate it
+        profile = dict(z0=compute_z0(umean, ustar, zm, ol=mo_length))
         provenance["z0"] = "estimated per half-hour from umean, ustar, zm and mo_length"
+    if options["rslayer"]:      # computes half-hours inside the roughness sublayer, which the checks reject by default
+        profile["rslayer"] = 1
     footprint = get_model(model)(
         zm=zm, ustar=ustar, pblh=pblh, mo_length=mo_length, v_sigma=v_sigma, wind_dir=wind_dir, **profile,
         dx=2 * half / CELLS, domain=[-half, half, -half, half], verbosity=2, pulse=max(1, len(rows) // 50),
         tower=(options["lon"], options["lat"]), tower_crs="EPSG:4326")
     z0 = profile.get("z0")
-    if z0 is not None and (z0 >= zm).any():     # the model drops these without logging them
+    if options["rslayer"] and z0 is not None and (z0 >= zm).any():      # the model drops these without logging them
         rejections[NO_FOOTPRINT] += int((z0 >= zm).sum())
     summary = dict(used=int(footprint.n), records=len(rows), version=__version__, model=model,
                    reason=rejections.most_common(1)[0][0] if rejections else None)
@@ -92,7 +93,7 @@ def run(options):
         median = float(np.nanmedian(z0))
         summary["z0"] = median if np.isfinite(median) else None     # JSON has no NaN
         below = z0 < zm
-        if below.any():
+        if options["rslayer"] and below.any():
             summary["sublayer"] = float((zm[below] <= SUBLAYER_TOP * z0[below]).mean())
             provenance["roughness_sublayer"] = (f"computed with rslayer=1. About {summary['sublayer']:.0%} of the half-hours "
                                                 "are inside it, where the result is a rough estimate.")

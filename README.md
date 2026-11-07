@@ -188,6 +188,11 @@ The registry is backed by `regorator`. New models are expected to come with a
 reference oracle in `tests/test_reference_regression.py` pinning them against
 their original implementation — CI enforces this.
 
+`@footprint_model` also lets a model say two things its signature cannot:
+`needs_z0=True` if it has no `umean` mode, and `reach`, how far its 90% source
+area usually extends, in multiples of `zm`. The
+[web page](docs/WEB_TOOL.md#models) lists every released model and reads both.
+
 ---
 
 ## API reference
@@ -221,6 +226,9 @@ their original implementation — CI enforces this.
 - `get_model(name)` — return the registered model callable.
 - `available_models()` — list registered model names.
 - `register_model(name, description="", **attrs)` — decorator to register a model.
+- `footprint_model(name, description="", meta=None, validate=None, options=(),
+  defaults=None, log=None, reach=None, needs_z0=False)` — decorator to register
+  a per-record kernel as a complete model.
 - `FootprintModel` — the callable protocol models conform to.
 
 ### `fluxprint.footprint.Footprint`

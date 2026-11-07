@@ -25,6 +25,9 @@ data carries on from where it ends:
 
 The FLUXNET Shuttle's sites are listed in data/shuttle.json, from the three hubs the
 Shuttle reads. Only the list is copied: the archives stay at their hubs.
+
+The page's models are listed in data/models.json, read from the wheels the page runs.
+So a model released in the version named in PACKAGES needs no edit in web/.
 """
 import csv
 import io
@@ -61,6 +64,39 @@ MAX_SECTOR_SHARE = 0.6      # one 45-degree sector above this is a stuck sensor
 MIN_RECORDS = 48
 MIN_SITES = 20      # fewer means ICOS failed, so keep the page already online
 ARCHIVE_NAME = re.compile(r"[A-Z]+_([A-Z]{2}-\w{3})_FLUXNET_(\d{4})-(\d{4})_v\d+\.\d+_r(\d+)\.zip")     # as the Shuttle requires
+DEFAULT_REACH = 200     # multiples of z - d, for a model that declares none: too wide only coarsens the grid
+NO_DESCRIPTION = "No description provided"      # what regorator stores for a model registered without one
+# What the page keeps for itself about a model, in the order it offers them, so the first is the default. These
+# citations were checked on Crossref. The package's are shorter, and 0.4.0 has the title of Kljun's wrong. `reach` and
+# `needs_z0` stand in for a wheel that predates them, as 0.4.0 and 0.4.1 do: what a wheel declares comes first.
+# `rslayer` is the page's own choice. Without it, Hsieh's checks left 5 to 9% of half-hours at forests.
+PAGE_MODELS = {
+    "kljun2015": dict(
+        name="Kljun et al. 2015",
+        reach=75,
+        citations=["Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015). A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP). Geosci. Model Dev. 8, 3695-3713. https://doi.org/10.5194/gmd-8-3695-2015"],
+    ),
+    "hsieh2000": dict(
+        name="Hsieh et al. 2000",
+        reach=200,
+        needs_z0=True,
+        rslayer=1,
+        citations=[
+            "Hsieh, C.-I., Katul, G., Chi, T. (2000). An approximate analytical model for footprint estimation of scalar fluxes in thermally stratified atmospheric flows. Adv. Water Resour. 23, 765-772. https://doi.org/10.1016/S0309-1708(99)00042-1",
+            "Detto, M., Montaldo, N., Albertson, J. D., Mancini, M., Katul, G. (2006). Soil moisture and vegetation controls on evapotranspiration in a heterogeneous Mediterranean ecosystem on Sardinia, Italy. Water Resour. Res. 42, W08419. https://doi.org/10.1029/2005WR004693",
+        ],
+    ),
+}
+# Run by a new Python with the wheels first on its path, so that it answers for the fluxprint the page will run.
+READ_REGISTRY = """
+import json, sys
+sys.path[:0] = sys.argv[1:]
+from fluxprint import __version__
+from fluxprint.model import available_models, get_model
+fields = ("_description", "model_citation", "model_doi", "lateral_citation", "reach", "needs_z0")
+models = {name: {field: getattr(get_model(name), field, None) for field in fields} for name in available_models()}
+print(json.dumps(dict(version=__version__, models=models)))
+"""
 ICOS_ARCHIVES = """
 prefix cpmeta: <http://meta.icos-cp.eu/ontologies/cpmeta/>
 prefix prov: <http://www.w3.org/ns/prov#>
@@ -301,6 +337,50 @@ def download_wheels():
     (folder / "index.json").write_text(json.dumps(names), encoding="utf-8")
 
 
+def read_registry(wheels):
+    """The fluxprint version in these wheels and what it registers. A failure stops the build."""
+    reply = subprocess.run([sys.executable, "-I", "-c", READ_REGISTRY, *map(str, wheels)], stdout=subprocess.PIPE, check=True)
+    return json.loads(reply.stdout)
+
+
+def declared(*values):
+    """The first value that says something, as False does."""
+    return next(value for value in values if value is not None)
+
+
+def metadata_citations(model):
+    """A model's citations in its metadata, written the way the page writes them."""
+    doi = model["model_doi"] and f"https://doi.org/{model['model_doi']}"
+    main_citation = " ".join(filter(None, [model["model_citation"], doi]))
+    return [text for text in (main_citation, model["lateral_citation"]) if text]
+
+
+def page_model(name, model):
+    """One model as the page shows it, from PAGE_MODELS and from what the wheel declares."""
+    own = PAGE_MODELS.get(name, {})
+    described = model["_description"] not in (None, "", NO_DESCRIPTION)
+    return dict(
+        name=own.get("name") or (model["_description"] if described else name),
+        reach=declared(model["reach"], own.get("reach"), DEFAULT_REACH),
+        needs_z0=declared(model["needs_z0"], own.get("needs_z0"), False),
+        rslayer=own.get("rslayer", 0),
+        citations=own.get("citations") or metadata_citations(model))
+
+
+def page_models(registry):
+    """Every model the wheel registers and no other, PAGE_MODELS first because available_models() sorts by name."""
+    found = registry["models"]
+    names = [*(name for name in PAGE_MODELS if name in found), *(name for name in found if name not in PAGE_MODELS)]
+    return dict(fluxprint=registry["version"], models={name: page_model(name, found[name]) for name in names})
+
+
+def write_models():
+    """List the models for the page, which fills its form before Python has loaded."""
+    listed = page_models(read_registry(sorted((OUT / "wheels").glob("*.whl"))))
+    (OUT / "data" / "models.json").write_text(json.dumps(listed, separators=(",", ":")), encoding="utf-8")
+    print("listed", *listed["models"], "from fluxprint", listed["fluxprint"], flush=True)
+
+
 def main():
     nrt, released = sites_in(NRT), sites_in(RELEASED)
     wanted = sys.argv[1:] or sorted(nrt | released)
@@ -309,6 +389,7 @@ def main():
     shutil.copytree(WEB, OUT)
     (OUT / "data").mkdir()
     download_wheels()
+    write_models()
     sites = {}
     for site in wanted:
         try:

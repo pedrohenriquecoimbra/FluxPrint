@@ -50,14 +50,62 @@ While stepping:
 
 ## Models
 
-The page offers the two models `fluxprint` registers: `kljun2015`, the default, and
-`hsieh2000`. Results, the Cite list, downloads and their file names all name the
-model, and a shared link keeps it (`model=`).
+The page offers every model the wheel in `PACKAGES` registers, today `kljun2015`, the
+default, and `hsieh2000`. Results, the Cite list, downloads and their file names all
+name the model, and a shared link keeps it (`model=`).
 
-`hsieh2000` has no `umean` mode, so it needs `z0`, which ICOS does not provide.
-`tool.py` estimates it for each half-hour with `compute_z0`, the same estimate
-`calculate_footprint` uses, from `umean`, `ustar`, `zm` and `mo_length`. The package
-marks that estimate as not yet validated.
+### Where the list comes from
+
+The form fills before Python has loaded, so `build_site.py` writes the list to
+`data/models.json`. A new Python imports the wheels just put in `_site/wheels` and
+reads the registry, so a `fluxprint` that is installed or in the checkout cannot answer
+for them: it could list a model the page cannot run. If that fails, the build stops
+and the page online stays. `import fluxprint` needs nothing the workflows do not
+already install.
+
+So adding a model takes no edit in `web/`:
+
+1. Register it with `footprint_model`, in a module `fluxprint/model/__init__.py` imports.
+2. Release `fluxprint`.
+3. Name that version in `PACKAGES`.
+
+| In `data/models.json` | Taken from, first one that has it |
+| --- | --- |
+| `name` | `PAGE_MODELS`, the model's `description`, its registry name |
+| `reach` | `footprint_model(reach=)`, `PAGE_MODELS`, 200 |
+| `needs_z0` | `footprint_model(needs_z0=)`, `PAGE_MODELS`, false |
+| `rslayer` | `PAGE_MODELS`, 0 |
+| `citations` | `PAGE_MODELS`, then `model_citation` with `model_doi`, and `lateral_citation` |
+
+- `reach` is how far the automatic map area goes, in multiples of `z - d`. The default
+  is the wider of the two known: an area too wide only coarsens the grid, one too
+  small cuts the footprint off, and then the page says to choose a wider one.
+- `needs_z0` says the model has no `umean` mode. `tool.py` passes `z0` or `umean`
+  according to it and names no model. If a model forgot to declare it, the page would
+  pass `umean`, so `tests/test_model_registry.py` fails for any model where it does not
+  match what the model does. It is the one fact the page needs from the `ModelInputs`
+  planned in [the roadmap](ROADMAP.md).
+- `reach` and `needs_z0` are set on the model and stay out of `meta`, which goes into
+  every output, so exports do not carry them.
+- `rslayer` is the page's choice, not a fact about the model, so it stays in
+  `PAGE_MODELS`. A new model runs without it until someone decides otherwise: the checks
+  reject half-hours in the sublayer, and the page gives no sublayer warning.
+
+`PAGE_MODELS` in `build_site.py` is what the page keeps for itself about the two current
+models. It lists them first, because `available_models()` sorts by name and the first
+one is the default. Their names and citations stay there whatever a wheel says: the
+citations were checked on Crossref, the package's are shorter, and 0.4.0 has the title
+of Kljun et al. (2015) wrong. Their `reach` and `needs_z0` only stand in for a wheel
+that lacks those fields, as 0.4.0 and 0.4.1 do. The package now declares the same
+values, so the release after 0.4.1 changes nothing on the page, and these two fields
+can then go.
+
+### What `z0` costs
+
+ICOS does not provide `z0`, so for a model that needs it `tool.py` estimates it for
+each half-hour with `compute_z0`, the same estimate `calculate_footprint` uses, from
+`umean`, `ustar`, `zm` and `mo_length`. The package marks that estimate as not yet
+validated.
 
 The estimate matters because `zm <= 12.5 * z0` is the roughness sublayer, which the
 package's checks reject by default. `kljun2015` with `umean` never meets that check,
@@ -85,7 +133,7 @@ For 4 October to 1 November 2026 (FR-Fon to 2 November):
   the lowest estimated `z0`, and its 90% reach was 2,263 m and 2,805 m. When fewer than
   half pass, the page says so and gives the most common reason.
 - Hsieh reaches 2 to 4 times further, so the automatic map area is wider for it
-  (`reach` in `app.js`).
+  (its `reach`).
 
 ## FLUXNET Shuttle and your own file
 
@@ -262,8 +310,9 @@ Which of the two is right at FR-Pue is unknown, and it is worth asking the site 
 | `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
 | `web/archive.js`, `web/fluxnet.py` | Reading a file, and turning it into the page's rows |
 | `tests/test_web_fluxnet.py` | Metadata, checks and estimates, run natively with the package's tests |
+| `tests/test_web_models.py` | The model list, from a release to `data/models.json`, and what `tool.py` passes a model |
 | `tests/file_cases.py` | Makes 82 broken and odd files and a check to run them in a browser |
-| `scripts/build_site.py` | Reads ICOS zarr, the Shuttle's hubs and the wheels into `_site/` (not in git) |
+| `scripts/build_site.py` | Reads ICOS zarr, the Shuttle's hubs and the wheels into `_site/` (not in git), and lists the wheels' models |
 | `.github/workflows/pages.yml` | Builds on push and daily, deploys to GitHub Pages |
 | `.gitlab-ci.yml` | The same build for GitLab Pages on forge INRAE, see below |
 
@@ -439,6 +488,27 @@ expect 6 to 14 ms.
   on the final code (1,258 of 1,400 with Kljun, 29 with Hsieh).
 - Markup in a file's name stays text in the map's tooltip. It used to run as script
   when the marker was hovered, because Leaflet shows a string as HTML.
+- The model list, against the page that held it by hand, on the same baked files and
+  wheel in Chromium 152: `kljun2015` and `hsieh2000` give the same table, notes,
+  citations, link and automatic area at FR-Fon (1,297 and 1,208 of 1,392), SE-Deg and
+  FR-Gri, and for three half-hours while stepping. Their GeoJSON is the same byte for
+  byte, and Hsieh's NetCDF differs only in the time in `history`. Kljun stays the
+  default. Before `rslayer`, the same comparison gave 1,297 and 73.
+- The list is the same from 0.4.0, from 0.4.1 and from a wheel that declares `reach` and
+  `needs_z0`. FR-Fon gives the same numbers in the page on 0.4.1 and on that wheel.
+- A release with two made-up models, built as a wheel, with `web/` untouched: both are
+  listed after the current two, and a link keeps them. The one declaring `reach` and
+  citations got `umean`, a 2 km area at FR-Fon, and its citations in Cite and the
+  GeoJSON. The one declaring only `needs_z0` got `z0`, the default `reach`, its registry
+  name, the checks' reason and no sublayer warning. A long description stays inside the
+  form.
+- `build_site.py` for FR-Fon with only the workflow's packages, with pip pointed at a
+  0.4.1 wheel built from the tag, writes the list. Served under `/FluxPrint/`, the page
+  gives 1,208 of 1,392 from that build.
+- With no `data/models.json` the page says it could not load the lists, and Run stays off.
+- All 82 cases in `tests/file_cases.py` again, and a loaded file through both models.
+- The suite on Python 3.10, 3.12 and 3.13, in the repository and from a copy of `tests/`
+  alone against the built wheel, as `publish.yml` runs it.
 
 Not tested: the workflow on GitHub itself, the job on the forge, other browsers, a real
 file dialog (the tests hand the page a `File`), a folder dropped on the page, a download
@@ -461,7 +531,8 @@ load only when their button is clicked (69 MB with all of them).
   30 minutes after `time`, and the daily sunshine centre sits within 0.2 h of solar
   noon on local standard time at FR-Fon, FI-Hyy and BE-Lon.
 - A new `fluxprint` release reaches the page by changing `PACKAGES` in
-  `build_site.py`.
+  `build_site.py`, and so do its new models and metadata. Nothing in `fluxprint/` on
+  `main` does until then.
 - GitHub Pages lets browsers keep files for 10 minutes, so a returning visitor can
   get a mix of old and new files just after a code change. A reload after that
   time fixes it.

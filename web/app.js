@@ -20,24 +20,8 @@ const HUBS = {
 const LINES = { 0.5: "#ffffff", 0.8: "#ffe066", 0.9: "#ff9f1c" };
 // Light to dark along a yellow to red ramp, readable over aerial imagery.
 const RAMP = [[255, 240, 120], [255, 190, 60], [245, 120, 40], [215, 50, 40], [140, 10, 60]];
-// `reach`: how far to draw, in multiples of z - d. At four sites in October 2026 the 90% contour reached 47 to 91 with
-// Kljun and 88 to 323 with Hsieh.
-const MODELS = {
-  kljun2015: {
-    name: "Kljun et al. 2015",
-    reach: 75,
-    citations: ["Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015). A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP). Geosci. Model Dev. 8, 3695-3713. https://doi.org/10.5194/gmd-8-3695-2015"],
-  },
-  hsieh2000: {
-    name: "Hsieh et al. 2000",
-    reach: 200,
-    citations: [
-      "Hsieh, C.-I., Katul, G., Chi, T. (2000). An approximate analytical model for footprint estimation of scalar fluxes in thermally stratified atmospheric flows. Adv. Water Resour. 23, 765-772. https://doi.org/10.1016/S0309-1708(99)00042-1",
-      "Detto, M., Montaldo, N., Albertson, J. D., Mancini, M., Katul, G. (2006). Soil moisture and vegetation controls on evapotranspiration in a heterogeneous Mediterranean ecosystem on Sardinia, Italy. Water Resour. Res. 42, W08419. https://doi.org/10.1029/2005WR004693",
-    ],
-  },
-};
 
+let models = {};            // from data/models.json: what the wheel on this page registers, see build_site.py
 let catalogue = { sites: {} };
 let shuttle = null;         // the FLUXNET Shuttle's site list, fetched on first use
 let source = "icos";        // the open tab: icos, shuttle or file
@@ -236,7 +220,7 @@ function medianHeight(rows) {
 
 // Wide enough for a tall tower's 90% contour, kept to one of the choices on offer.
 function automaticHalf(rows) {
-  const wanted = MODELS[$("model").value].reach * medianHeight(rows);
+  const wanted = models[$("model").value].reach * medianHeight(rows);
   return [250, 500, 1000, 2000, 4000].find((half) => half >= wanted) ?? 4000;
 }
 
@@ -471,7 +455,7 @@ const roughnessRow = (summary) => (summary.z0 == null ? [] : [["Roughness length
 
 function footprintRows(summary) {
   return [
-    ["Model", MODELS[summary.model].name],
+    ["Model", models[summary.model].name],
     ["Peak", `${formatDistance(summary.peak_m)} ${compass(summary.peak_bearing)}`],
     ...summary.contours.map((c) => [`${Math.round(c.fraction * 100)}% reach, area`, `${formatDistance(c.reach_m)}, ${formatArea(c.area_ha)}`]),
     ["Measurement height z - d", `${summary.zm.toFixed(1)} m`],
@@ -565,7 +549,7 @@ function showResults({ site, from, to, title, rows, notes, summary }) {
   if (site.file) shown.push(...fileNotes(site, from, to));
   fillList("notes", shown);
   fillList("citations", [
-    ...sources.map((source) => source.citation).filter(Boolean), ...MODELS[summary.model].citations,
+    ...sources.map((source) => source.citation).filter(Boolean), ...models[summary.model].citations,
     `FluxPrint ${summary.version}. https://github.com/pedrohenriquecoimbra/FluxPrint`,
   ]);
   $("export").hidden = !summary.used;
@@ -593,10 +577,10 @@ function runOptions(site, half, from, to) {
   const sources = sourcesFor(site, from, to);
   const model = $("model").value;
   return {
-    half, model, lat: site.lat, lon: site.lon,
+    half, model, needs_z0: models[model].needs_z0, rslayer: models[model].rslayer, lat: site.lat, lon: site.lon,
     provenance: {
       site: site.id ?? siteId, site_name: site.name, period_start: from, period_end: to, hours: $("hours").value,
-      model, model_citation: MODELS[model].citations.join(" | "),
+      model, model_citation: models[model].citations.join(" | "),
       data_citation: sources.map((source) => source.citation).join(" | "),
       wind_direction: site.file ? `WD in the file, from ${site.file.windSensor ?? "an unnamed sensor"}` : sources.map((source) => (source.wind ? `sensor ${source.wind.sensor}` : "EC")).join(" | "),
       ...fileProvenance(site),
@@ -833,7 +817,7 @@ function contoursAsGeoJson() {
   const citation = sourcesFor(site, current.from, current.to).map((source) => source.citation).join(" | ");
   const { model } = current.summary;
   return JSON.stringify({
-    type: "FeatureCollection", citation, model, model_citation: MODELS[model].citations.join(" | "),
+    type: "FeatureCollection", citation, model, model_citation: models[model].citations.join(" | "),
     warning: sublayerNote(current.summary)[0], ...fileProvenance(site), features,
   });
 }
@@ -1097,7 +1081,7 @@ function addSites(sites, { select, layer, group, fill, country, pick }) {
 function restoreForm(state) {
   if (state.get("hours")) $("hours").value = state.get("hours");
   if (state.get("area")) $("half").value = state.get("area");
-  if (MODELS[state.get("model")]) $("model").value = state.get("model");
+  if (models[state.get("model")]) $("model").value = state.get("model");
   if (!state.get("from") || !state.get("to")) return false;
   $("from").value = state.get("from");
   $("to").value = state.get("to");
@@ -1190,9 +1174,9 @@ $("cancel").addEventListener("click", () => {
   showMessage("Cancelled.");
 });
 
-Object.entries(MODELS).forEach(([id, model]) => $("model").add(new Option(model.name, id)));
-
 try {
+  ({ models } = await (await fetch("data/models.json")).json());
+  Object.entries(models).forEach(([id, model]) => $("model").add(new Option(model.name, id)));
   catalogue = await (await fetch("data/sites.json")).json();
   addSites(catalogue.sites, {
     select: $("site"), layer: layers.icos, group: markers, fill: "#0b6e4f",
@@ -1201,5 +1185,5 @@ try {
   $("copied").textContent = `${Object.keys(catalogue.sites).length} sites, copied on ${catalogue.built}.`;
   restoreState();
 } catch (error) {
-  showMessage(`Could not load the site list: ${error.message}`);
+  showMessage(`Could not load the site and model lists: ${error.message}`);
 }

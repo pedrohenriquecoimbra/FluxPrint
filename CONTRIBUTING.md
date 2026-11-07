@@ -28,13 +28,19 @@ A model is a keyword-only callable returning one local-frame `Footprint`
 
 1. implement/port the model; keep the reference implementation vendored
    alongside it if you rewrote the code;
-2. register it with `@register_model("name", description=..., citation=...,
-   doi=...)` and stamp provenance into the returned footprint's `attrs`;
+2. register it with `@footprint_model("name", description=...,
+   meta={"model_citation": ..., "model_doi": ...})`, which stamps that
+   provenance into every footprint's `attrs`, and import its module in
+   `fluxprint/model/__init__.py`;
 3. add a reference oracle in `tests/test_reference_regression.py`
    (`REFERENCE_ORACLES`) - the suite fails if a registered model has no
    reference check;
 4. validate inputs per record (reject NaN/None; see
-   `exceptions.check_ffp_inputs`).
+   `exceptions.check_ffp_inputs`);
+5. declare `needs_z0=True` if it has no `umean` mode, and its `reach` if you
+   know it. The web page lists the model once a release that has it is named in
+   `PACKAGES` in `scripts/build_site.py`, with no edit in `web/`
+   (see [`docs/WEB_TOOL.md`](docs/WEB_TOOL.md#models)).
 
 ## Cutting a release
 
