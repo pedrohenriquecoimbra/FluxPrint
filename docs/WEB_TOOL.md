@@ -82,6 +82,7 @@ to 1 November 2026 (FR-Fon to 2 November):
 | `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
 | `scripts/build_site.py` | Reads ICOS zarr and fetches the wheels into `_site/` (not in git) |
 | `.github/workflows/pages.yml` | Builds on push and daily, deploys to GitHub Pages |
+| `.gitlab-ci.yml` | The same build for GitLab Pages on forge INRAE, see below |
 
 Run it locally:
 
@@ -205,7 +206,8 @@ expect 6 to 14 ms.
 - Shared links, cancel, an empty period, reversed dates and the phone layout.
 - Stepping: previous, next, play, pause, dragging, rejected half-hours at FR-Gri,
   a link to one half-hour, and the timeline closing when the form changes.
-- The page served under `/FluxPrint/`, as GitHub Pages will serve it.
+- The page served under `/FluxPrint/`, as GitHub Pages will serve it, and under
+  `/fluxprint/`, as the forge would.
 - With micropip pointed at a dead index the page still computes, so it does not
   use PyPI. A failed Python start shows a plain message, and Run then recovers.
 - Aerial and street tiles: 15 of 15 loaded for each at FR-Fon.
@@ -222,7 +224,7 @@ expect 6 to 14 ms.
   reason.
 - All 77 ICOS links on the page open.
 
-Not tested: the workflow on GitHub itself, and other browsers.
+Not tested: the workflow on GitHub itself, the job on the forge, and other browsers.
 
 First-visit download, cached afterwards: 35 MB to compute, and export libraries
 load only when their button is clicked (69 MB with all of them).
@@ -251,7 +253,8 @@ load only when their button is clicked (69 MB with all of them).
 
 ## Other data sources and hosts
 
-Checked on 2026-11-07. None of this is built.
+Checked on 2026-11-07. The forge job is written but has not run, and the rest is not
+built.
 
 ### FLUXNET Shuttle
 
@@ -295,21 +298,29 @@ GL-ZaF has every input. The others lack `PBLH`, and often `MO_LENGTH` or `V_SIGM
 
 ### Forge INRAE
 
-The page should run there, because it is static and uses relative paths, but this
-was not tried.
+`.gitlab-ci.yml` publishes the same build with GitLab Pages. The page should run
+there, because it is static and uses relative paths, but the job has not run yet.
+
+To set it up:
+
+1. Create a project `fluxprint` in the `icos_ecosystemes` group. The link is then
+   `https://icos_ecosystemes.pages-forge.inrae.fr/fluxprint/`.
+2. Push the repository to it. This machine has no SSH key, so use HTTPS.
+3. Follow the two setup lines at the top of `.gitlab-ci.yml`: public Pages and a
+   daily schedule.
+
+What is known so far:
 
 - `https://icos_ecosystemes.pages-forge.inrae.fr/observatoire-des-flux/index.html`
   opens with no login. It sends no content security policy that could block Pyodide,
   and the same 10-minute cache as GitHub.
-- The link would be `https://icos_ecosystemes.pages-forge.inrae.fr/fluxprint/`. A
-  namespace with a dot in it fails TLS, so a personal namespace will not do.
-- It needs a `pages` job in `.gitlab-ci.yml` that runs `build_site.py` and moves
-  `_site` to `public`, plus a daily pipeline schedule. GitLab has no equivalent of
-  GitHub's 60-day pause.
+- A namespace with a dot in it fails TLS, so a personal namespace will not do.
+- GitLab has no equivalent of GitHub's 60-day pause on schedules.
 - Pages must be open to everyone. Another forge site redirected to a login.
 - GitLab's default limit is 100 MB per site, and the data grows by at most 20 MB a
   year. The forge's own limit was not checked.
-- Whether forge runners can reach `zarr.icos-cp.eu` was not checked.
+- Whether forge runners can reach `zarr.icos-cp.eu` was not checked. If they cannot,
+  the build stops and whatever is published stays online.
 - GitLab's pull mirroring is a paid feature and push mirroring is free. So either
   push to both remotes, or work on the forge and mirror to GitHub.
 

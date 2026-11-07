@@ -1,0 +1,25 @@
+# Publishes the web tool with GitLab Pages on forge INRAE, the same build as
+# .github/workflows/pages.yml.
+#
+# One-time setup on the forge:
+#   - Settings > General > Visibility: project public, Pages set to Everyone.
+#   - Build > Pipeline schedules: "17 5 * * *", time zone UTC, branch main. ICOS
+#     rebuilds its near-real-time store at about 04:00 UTC.
+
+pages:
+  image: python:3.12
+  script:
+    - pip install xarray zarr fsspec aiohttp pandas requests
+    - python scripts/build_site.py
+    - mv _site public
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 day    # the published site is stored apart from the job's artifact
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - web/**/*
+        - scripts/build_site.py
+        - .gitlab-ci.yml
