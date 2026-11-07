@@ -5,6 +5,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project aims to follow [Semantic Versioning](https://semver.org/)
 (pre-1.0: minor releases may contain breaking changes, announced here).
 
+## [Unreleased]
+
+### Fixed
+
+- `compute_pblh` no longer returns a negative height south of the equator. It
+  divided `ustar` by the signed Coriolis parameter, so the models rejected
+  every record there (`pblh <= 10`). It now uses `|f|`, with the same `f_min`
+  floor near the equator. Heights north of the equator do not change.
+
 ## [0.4.0] - 2026-09-09
 
 The genericization release: a model is only physics. The scaffolding every

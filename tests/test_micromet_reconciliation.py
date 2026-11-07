@@ -7,8 +7,8 @@ once it consumes fluxprint as the single source of truth:
 * ``compute_mo_length`` uses the *kinematic* buoyancy flux ``H/(rho*cp)`` and
   ``TA + 273.15`` -- the plain ``H`` form was ~1200x too small;
 * ``compute_std_v`` defaults to ``a = 2.0`` (was ``a = 3.5``);
-* ``compute_pblh`` floors ``|f|`` so ``h = ustar / f`` stays finite at the
-  equator.
+* ``compute_pblh`` floors ``|f|`` so ``h = ustar / |f|`` stays finite at the
+  equator, and is positive in both hemispheres.
 
 Runnable under pytest or directly:
 ``python tests/test_micromet_reconciliation.py``.
@@ -62,6 +62,26 @@ def test_pblh_equator_is_finite():
 
 def test_pblh_midlatitude():
     assert abs(float(compute_pblh(0.3, 45.0)) - 2909.0664) < 0.1
+
+
+def test_pblh_same_magnitude_in_both_hemispheres():
+    north = float(compute_pblh(0.3, 35.0))
+    south = float(compute_pblh(0.3, -35.0))
+    assert abs(north - south) < 1e-6, f"north {north}, south {south}"
+
+
+def test_pblh_positive_south_of_the_equator():
+    # The models reject pblh <= 10, so a negative height loses every record.
+    h = float(compute_pblh(0.3, -35.0))
+    assert h > 0, f"expected a positive height, got {h}"
+
+
+def test_pblh_floor_on_both_sides_of_the_equator():
+    # |f| < f_min within about 4 degrees of the equator, on either side.
+    for latitude in (0.0, 1.0, -1.0):
+        h = float(compute_pblh(0.3, latitude))
+        assert np.isfinite(h) and h > 0, f"bad height at {latitude}: {h}"
+        assert abs(h - 0.3 / 1e-5) < 1e-6, f"no floor at {latitude}: {h}"
 
 
 if __name__ == "__main__":

@@ -58,15 +58,16 @@ def compute_psi_f(zm, ol):
 
 @register("pblh", ESTIMATORS, "Boundary-layer height from ustar and latitude")
 def compute_pblh(ustar, latitude_deg, f_min=1e-5):
-    """Boundary-layer height ``h = ustar / f``.
+    """Boundary-layer height ``h = ustar / |f|``.
 
-    The Coriolis parameter f -> 0 near the equator, which would blow up
-    ``h = ustar / f``, so ``|f|`` is floored at ``f_min`` (~ +/- 4 deg
-    latitude) while keeping its sign.
+    The Coriolis parameter f is negative south of the equator, so the height
+    uses its magnitude and is positive in both hemispheres. ``|f|`` -> 0 near
+    the equator, which would blow up ``h``, so it is floored at ``f_min``
+    (~ +/- 4 deg latitude).
     """
     omega = 7.2921e-5  # Earth's angular velocity [rad s-1]
-    f = 2 * omega * np.sin(np.radians(latitude_deg))
-    f = np.where(f >= 0, np.maximum(f, f_min), np.minimum(f, -f_min))
+    f = 2 * omega * np.sin(np.radians(np.asarray(latitude_deg)))
+    f = np.maximum(np.abs(f), f_min)
     return np.asarray(ustar) / f
 
 
