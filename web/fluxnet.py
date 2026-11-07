@@ -257,7 +257,7 @@ def rows(raw, latitude, sensor, canopy, zm=None):
     with np.errstate(divide="ignore", invalid="ignore"):
         table = np.column_stack([
             (time - year) / np.timedelta64(30, "m"), height, umean, ustar,
-            compute_pblh(ustar, abs(latitude)),     # with a negative latitude it returns a negative height
+            compute_pblh(ustar, latitude),
             compute_mo_length(ustar, heat, TA=temperature, PA=pressure), compute_std_v(ustar), wind_dir])
     keep = np.isfinite(table).all(axis=1)
     labels, counts = np.unique(year[keep].astype(int) + 1970, return_counts=True)

@@ -50,7 +50,7 @@ ICOS_SPARQL = "https://meta.icos-cp.eu/sparql"
 AMERIFLUX_API = "https://amfcdn.lbl.gov/api/v2/"
 TERN_FLUXNET = "https://dap.tern.org.au/thredds/fileServer/ecosystem_process/fluxnet/"
 
-PACKAGES = ["fluxprint==0.4.0", "regorator==0.2.0"]     # served with the page, so a visitor never needs PyPI
+PACKAGES = ["fluxprint==0.4.1", "regorator==0.2.0"]     # served with the page, so a visitor never needs PyPI
 
 COLUMNS = ["t", "zm", "umean", "ustar", "pblh", "mo_length", "v_sigma", "wind_dir"]
 INPUTS = COLUMNS[1:]
