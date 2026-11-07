@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FluxPrint: footprints for ICOS sites</title>
-  <meta name="description" content="Pick an ICOS ecosystem site and any dates, compute the flux footprint in your browser, see it on a map and download it.">
+  <title>FluxPrint: flux footprints in your browser</title>
+  <meta name="description" content="Pick a site from ICOS or the FLUXNET Shuttle, or load your own FLUXNET file, compute the flux footprint in your browser, see it on a map and download it.">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="style.css">
@@ -13,17 +13,42 @@
   <aside class="panel">
     <header>
       <h1>FluxPrint</h1>
-      <p>Pick an ICOS site and dates. The footprint is computed in this browser tab with the
+      <p>Pick a site and dates, or load your own file. The footprint is computed in this browser tab with the
         <a href="https://github.com/pedrohenriquecoimbra/FluxPrint">fluxprint</a> package, so nothing is
         installed on your computer.</p>
     </header>
 
     <form id="form">
-      <label>Site
-        <select id="site" required><option value="">Choose a site, or click the map</option></select>
+      <div class="tabs" id="tabs" role="group" aria-label="Where the data comes from">
+        <button type="button" data-source="icos" aria-pressed="true">ICOS</button>
+        <button type="button" data-source="shuttle" aria-pressed="false">FLUXNET Shuttle</button>
+        <button type="button" data-source="file" aria-pressed="false">Your file</button>
+      </div>
+
+      <label id="icos-field">Site
+        <select id="site"><option value="">Choose a site, or click the map</option></select>
+      </label>
+      <label id="shuttle-field" hidden>Site
+        <select id="shuttle-site"><option value="">Choose a site, or click the map</option></select>
       </label>
       <p class="hint" id="coverage"></p>
       <p class="hint" id="origin" hidden></p>
+
+      <div id="loader" class="loader" hidden>
+        <p class="hint" id="route"></p>
+        <button type="button" id="read" class="secondary" hidden></button>
+        <a id="get" class="secondary" target="_blank" rel="noopener" hidden>Download the archive</a>
+        <label>ZIP or CSV in FLUXNET format <input type="file" id="file" accept=".zip,.csv"></label>
+      </div>
+
+      <div id="details" class="loader" hidden>
+        <div class="row" id="place">
+          <label>Latitude <input type="number" id="lat" min="-90" max="90" step="any"></label>
+          <label>Longitude <input type="number" id="lon" min="-180" max="180" step="any"></label>
+        </div>
+        <label>Measurement height z - d, in metres <input type="number" id="zm" min="0.01" step="any"></label>
+        <p class="hint" id="height"></p>
+      </div>
 
       <div class="row">
         <label>From <input type="date" id="from" required></label>
@@ -88,11 +113,12 @@
     </section>
 
     <footer>Data from the <a href="https://data.icos-cp.eu/portal/" target="_blank" rel="noopener">ICOS Carbon Portal</a>,
-      <a href="https://data.icos-cp.eu/licence" target="_blank" rel="noopener">CC BY 4.0</a>. <span id="copied"></span></footer>
+      <a href="https://data.icos-cp.eu/licence" target="_blank" rel="noopener">CC BY 4.0</a>. <span id="copied"></span>
+      FLUXNET Shuttle archives stay with their hubs (ICOS, AmeriFlux, TERN) and are CC BY 4.0 too.</footer>
   </aside>
 
   <div class="stage">
-    <main id="map" aria-label="Map of ICOS sites and the computed footprint"></main>
+    <main id="map" aria-label="Map of flux sites and the computed footprint"></main>
     <section id="timeline" class="timeline" aria-label="Half-hour by half-hour" hidden>
       <div class="transport">
         <button type="button" id="back" aria-label="Previous half-hour">

@@ -1,0 +1,143 @@
+"""The web page's reading of FLUXNET metadata and its estimated inputs."""
+import importlib.util
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from fluxprint.micrometeorology import compute_mo_length
+
+spec = importlib.util.spec_from_file_location("fluxnet", Path(__file__).parents[1] / "web" / "fluxnet.py")
+fluxnet = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fluxnet)
+
+HEADER = "SITE_ID,GROUP_ID,VARIABLE_GROUP,VARIABLE,DATAVALUE\n"
+
+
+def bif(*groups):
+    """BIF text from (group id, group name, {variable: value}) entries."""
+    lines = [f"XX-Tst,{gid},{group},{variable},{value}\n"
+             for gid, group, values in groups for variable, value in values.items()]
+    return HEADER + "".join(lines)
+
+
+def table(*records):
+    """Raw columns for half-hours given as (stamp, ustar, ws, wd, h, ta, pa)."""
+    rows = [(np.datetime64(stamp, "ms").astype(float), *rest) for stamp, *rest in records]
+    return np.array(rows)
+
+
+def test_records_reads_both_group_names_and_keeps_entries_apart():
+    text = bif((1, "GRP_HEIGHTC", {"HEIGHTC": 2}), (2, "HEIGHTC", {"HEIGHTC": 3}), (3, "GRP_LAI", {"LAI": 5}))
+    assert fluxnet.records(text, "HEIGHTC") == [{"HEIGHTC": "2"}, {"HEIGHTC": "3"}]
+
+
+def test_records_splits_entries_sharing_a_group_id():
+    text = HEADER + "XX-Tst,1,HEIGHTC,HEIGHTC,2\nXX-Tst,1,HEIGHTC,HEIGHTC,3\n"
+    assert fluxnet.records(text, "HEIGHTC") == [{"HEIGHTC": "2"}, {"HEIGHTC": "3"}]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("2011", "2011-01-01T00:00"), ("20190420", "2019-04-20T00:00"), ("201707101230", "2017-07-10T12:30"),
+    ("", None), (None, None), ("2019042", None), ("20191340", None),
+])
+def test_when_reads_every_date_form(text, expected):
+    assert fluxnet.when(text) == expected
+
+
+def test_canopy_takes_each_dates_largest_living_mean():
+    text = bif(
+        (1, "GRP_HEIGHTC", {"HEIGHTC": 20, "HEIGHTC_STATISTIC": "Mean", "HEIGHTC_SPP": "Pinus", "HEIGHTC_DATE": 20200101}),
+        (2, "GRP_HEIGHTC", {"HEIGHTC": 9, "HEIGHTC_STATISTIC": "Mean", "HEIGHTC_SPP": "Alnus", "HEIGHTC_DATE": 20200101}),
+        (3, "GRP_HEIGHTC", {"HEIGHTC": 15, "HEIGHTC_STATISTIC": "Mean", "HEIGHTC_DATE": 20200101}),
+        (4, "GRP_HEIGHTC", {"HEIGHTC": 31, "HEIGHTC_STATISTIC": "Maximum", "HEIGHTC_DATE": 20200101}),
+        (5, "GRP_HEIGHTC", {"HEIGHTC": 3, "HEIGHTC_STATISTIC": "Standard Deviation", "HEIGHTC_DATE": 20200101}),
+        (6, "GRP_HEIGHTC", {"HEIGHTC": 40, "HEIGHTC_STATISTIC": "Mean", "HEIGHTC_VEG_STATUS": "Dead", "HEIGHTC_DATE": 20200101}),
+        (7, "GRP_HEIGHTC", {"HEIGHTC_STATISTIC": "Mean", "HEIGHTC_DATE": 20210101}),
+        (8, "GRP_HEIGHTC", {"HEIGHTC": 1.5, "HEIGHTC_DATE_START": 20190601, "HEIGHTC_DATE_END": 20190602}),
+    )
+    assert fluxnet.canopy_heights(text) == [("2019-06-01T00:00", 1.5), ("2020-01-01T00:00", 20.0)]
+
+
+def test_sensor_heights_come_from_ustar_alone_in_time_order():
+    text = bif(
+        (1, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "USTAR", "VAR_INFO_DATE": 202001010000, "VAR_INFO_HEIGHT": 30}),
+        (2, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "TA_F", "VAR_INFO_DATE": 201001010000, "VAR_INFO_HEIGHT": 2}),
+        (3, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "USTAR", "VAR_INFO_DATE": 201501010000, "VAR_INFO_HEIGHT": 24}),
+        (4, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "USTAR", "VAR_INFO_DATE": 201601010000}),
+    )
+    assert fluxnet.sensor_heights(text) == [("2015-01-01T00:00", 24.0), ("2020-01-01T00:00", 30.0)]
+
+
+def test_height_follows_the_dated_readings():
+    sensor = [("2015-01-01T00:00", 3.0), ("2020-01-01T00:00", 5.0)]
+    canopy = [("2018-01-01T00:00", 0.0), ("2019-01-01T00:00", 1.0), ("2021-01-01T00:00", 3.0)]
+    times = np.array(["2010-06-01", "2018-06-01", "2020-06-01", "2022-06-01"], dtype="datetime64[m]")
+    assert fluxnet.measurement_height(times, sensor, canopy) == pytest.approx(
+        [3 - 0.67, 3, 5 - 0.67, 5 - 0.67 * 3])    # the first time is before any canopy reading, so it gets the median
+
+
+def test_height_above_nothing_is_missing():
+    sensor = [("2015-01-01T00:00", 2.0)]
+    canopy = [("2015-01-01T00:00", 4.0)]
+    assert np.isnan(fluxnet.measurement_height(np.array(["2016-01-01"], dtype="datetime64[m]"), sensor, canopy)).all()
+
+
+def test_describe_reads_a_network_without_group_prefixes():
+    text = bif((1, "HEADER", {"SITE_NAME": "Test"}), (2, "LOCATION", {"LOCATION_LAT": 45.5, "LOCATION_LONG": -90.25}),
+               (3, "UTC_OFFSET", {"UTC_OFFSET": -6}), (4, "IGBP", {"IGBP": "DBF"}))
+    info = fluxnet.describe(text, "")
+    assert (info["site"], info["name"], info["lat"], info["lon"], info["utc_offset"], info["igbp"]) == (
+        "XX-Tst", "Test", 45.5, -90.25, -6.0, "DBF")
+    assert (info["sensor"], info["canopy"], info["height_span"]) == ([], [], None)
+
+
+def test_describe_of_a_file_without_metadata_is_empty():
+    assert fluxnet.describe("", "") == dict(site=None, name=None, igbp=None, lat=None, lon=None, utc_offset=None,
+                                            product=None, sensor=[], canopy=[], height_span=None, wind_sensor=None)
+
+
+def test_wind_sensor_is_the_latest_one():
+    text = bif((1, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "WD", "VAR_INFO_DATE": 202102221300, "VAR_INFO_MODEL": "WIND-2DSA"}),
+               (2, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "WD", "VAR_INFO_DATE": 199606010000, "VAR_INFO_MODEL": "WIND-VaneAn"}),
+               (3, "GRP_VAR_INFO", {"VAR_INFO_VARNAME": "USTAR", "VAR_INFO_DATE": 202201010000, "VAR_INFO_MODEL": "SA-Gill R3-50"}))
+    assert fluxnet.wind_sensor(text) == "WIND-2DSA"
+
+
+def test_rows_match_the_baked_columns():
+    raw = table(("2023-01-01T00:30", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0), ("2023-07-01T12:00", 0.5, 2.0, 90.0, -20.0, 20.0, 99.0))
+    rows, years = fluxnet.rows(raw, 48.0, [], [], zm=12.0)
+    assert years == {"2023": 2}
+    assert rows[:, 0] == pytest.approx([1, 181 * 48 + 24])
+    assert rows[:, 1] == pytest.approx([12, 12])
+    assert rows[:, 2] == pytest.approx([3, 2])
+    assert rows[:, 3] == pytest.approx([0.4, 0.5])
+    assert rows[:, 5] == pytest.approx(compute_mo_length(raw[:, 1], raw[:, 4], TA=raw[:, 5], PA=raw[:, 6]))
+    assert rows[:, 6] == pytest.approx([0.8, 1.0])
+    assert rows[:, 7] == pytest.approx([200, 90])
+    assert rows[0, 5] < 0 < rows[1, 5]      # upward heat flux is unstable, downward stable
+
+
+def test_rows_sort_split_by_year_and_drop_duplicates():
+    raw = table(("2024-01-01T00:00", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0), ("2023-12-31T23:30", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0),
+                ("2024-01-01T00:00", 0.9, 3.0, 200.0, 50.0, 10.0, 100.0))
+    rows, years = fluxnet.rows(raw, 48.0, [], [], zm=12.0)
+    assert years == {"2023": 1, "2024": 1}
+    assert rows[:, 0] == pytest.approx([364 * 48 + 47, 0])
+
+
+def test_boundary_layer_is_positive_in_both_hemispheres():
+    raw = table(("2023-01-01T00:30", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0))
+    north, _ = fluxnet.rows(raw, 35.0, [], [], zm=12.0)
+    south, _ = fluxnet.rows(raw, -35.0, [], [], zm=12.0)
+    assert north[0, 4] == pytest.approx(south[0, 4])
+    assert south[0, 4] > 0
+
+
+def test_rows_without_a_height_are_dropped():
+    raw = table(("2023-01-01T00:30", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0), ("2024-01-01T00:30", 0.4, 3.0, 200.0, 50.0, 10.0, 100.0))
+    sensor = [("2020-01-01T00:00", 2.0)]
+    canopy = [("2020-01-01T00:00", 1.0), ("2024-01-01T00:00", 4.0)]
+    rows, years = fluxnet.rows(raw, 48.0, sensor, canopy)
+    assert years == {"2023": 1}
+    assert rows[0, 1] == pytest.approx(2 - 0.67)

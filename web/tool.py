@@ -2,6 +2,7 @@
 
 The worker writes the selected half-hours to /tmp/rows.bin, then calls run().
 Footprint fields stay in this module so the export functions can reach them.
+A file the visitor loads first goes through describe_file() and prepare().
 """
 import glob
 import json
@@ -14,6 +15,7 @@ from collections import Counter
 import numpy as np
 from js import fpProgress
 
+import fluxnet
 from fluxprint import __version__
 from fluxprint.micrometeorology import compute_z0
 from fluxprint.model import get_model
@@ -41,6 +43,20 @@ class EngineLog(logging.Handler):
 logger = logging.getLogger("fluxprint")
 logger.setLevel(logging.INFO)
 logger.addHandler(EngineLog())
+
+
+def describe_file(bif, varinfo):
+    """What a loaded file's metadata says, as JSON."""
+    return json.dumps(fluxnet.describe(bif, varinfo))
+
+
+def prepare(options):
+    """Turn the columns in /tmp/raw.bin into the page's rows, and return their count per year as JSON."""
+    options = json.loads(options)
+    raw = np.fromfile("/tmp/raw.bin", dtype="<f8").reshape(-1, fluxnet.RAW_COLUMNS)
+    table, years = fluxnet.rows(raw, options["latitude"], options["sensor"], options["canopy"], options["zm"])
+    table.astype("<f4").tofile("/tmp/table.bin")
+    return json.dumps(years)
 
 
 def run(options):

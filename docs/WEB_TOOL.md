@@ -1,14 +1,16 @@
 # FluxPrint web tool
 
-A static page where anyone picks an ICOS site and dates, computes the footprint
-in their browser and sees it on an online map. There is no server: the page runs
-the published `fluxprint` wheel through [Pyodide](https://pyodide.org).
+A static page where anyone picks a site from ICOS or the FLUXNET Shuttle, or loads
+a file of their own in FLUXNET format, computes the footprint in their browser and
+sees it on an online map. There is no server: the page runs the published
+`fluxprint` wheel through [Pyodide](https://pyodide.org).
 
 Status: built and tested locally on 2026-11-07. Not deployed yet.
 
-It covers 37 sites and 1.35 million half-hours in 43 MB. 22 sites have released
-data from as far back as 2019, carried on by near-real-time data to last week.
-The other 15 have the near-real-time window only, about 63 days.
+The ICOS tab covers 37 sites and 1.35 million half-hours in 43 MB. 22 sites have
+released data from as far back as 2019, carried on by near-real-time data to last
+week. The other 15 have the near-real-time window only, about 63 days. The FLUXNET
+Shuttle tab lists 784 sites, whose data stays at the hubs.
 
 ## How a static page runs this
 
@@ -22,6 +24,7 @@ computer, and the browser keeps the download for later visits.
 | GitHub Pages | The page, the site data, the `fluxprint` and `regorator` wheels |
 | `cdn.jsdelivr.net` | Pyodide, its packages and Leaflet |
 | `server.arcgisonline.com`, `tile.openstreetmap.org` | Map tiles |
+| `dap.tern.org.au` | TERN archives, read when a visitor asks for one |
 
 PyPI is not on the list. A failed PyPI lookup stopped the page during testing
 (`ERR_NAME_NOT_RESOLVED` in the browser, so a passing network failure, not a page
@@ -75,12 +78,145 @@ to 1 November 2026 (FR-Fon to 2 November):
 - Hsieh reaches 2 to 5 times further, so the automatic map area is wider for it
   (`reach` in `app.js`).
 
+## FLUXNET Shuttle and your own file
+
+The tabs above the site picker are ICOS, FLUXNET Shuttle and Your file. Everything
+after them works the same for all three: both ways to run, the model choice and all
+four downloads. A file is never uploaded. It is read in the browser and is gone when
+the page closes.
+
+### Getting an archive
+
+`build_site.py` writes `data/shuttle.json`, the site list the Shuttle itself would
+give, with each site's citation (394 KB, 70 KB gzipped, fetched when the tab opens).
+
+| Hub | Sites | Archive size | What a visitor does |
+| --- | --- | --- | --- |
+| TERN | 52 | Not listed | Clicks Read from TERN |
+| ICOS, with the European, Asian and African networks | 351 | 30 GB in all | Downloads the ZIP, then loads it |
+| AmeriFlux | 381 | 28 GB in all | Downloads the ZIP, then loads it |
+
+Whether a click is enough depends on the hub's CORS headers, checked on 2026-11-07:
+
+- **TERN** sends `Access-Control-Allow-Origin: *` and honours `Range`, so `archive.js`
+  fetches only the entries it needs. Its preflight fails with 403, but Chromium sends
+  a simple `Range` without one. A browser that does preflight gets a message pointing
+  to the download link. That case was not tried.
+- **ICOS:** `data.icos-cp.eu/objects` sends no CORS header, and its download link sets
+  a licence cookie first. `/zip/<id>/listContents` is open, but `/zip/<id>/extractFile`
+  answers 401 without a portal login. The page says that its link accepts the licence.
+- **AmeriFlux:** the site and link API is open to browsers, but the files on
+  `ftp.fluxdata.org` send no CORS header. The list uses the link the Shuttle uses.
+
+So 732 of the 784 sites take one download. The list leaves out 3 ICOS and 26 AmeriFlux
+archives in the older FULLSET format, as the Shuttle does.
+
+### Reading a file
+
+`archive.js` runs in its own worker, so Python and the map carry on:
+
+- In a ZIP it reads the directory at the end of the file, then inflates only the data
+  file, `BIF` and `BIFVARINFO_HH` with `DecompressionStream`. Hourly sites such as
+  US-Ha1 name them `FLUXMET_HR` and `BIFVARINFO_HR`.
+- The data file is streamed and never held whole. Only the columns needed are kept, at
+  most 30 MB for 30 years. A 216 MB ZIP took 4.5 s, with the page's own thread stalling
+  for at most 26 ms, and a 260 MB one, 765 MB unpacked, took 5.8 s.
+- It keeps `TIMESTAMP_START`, `USTAR`, `WS_F`, `WD`, `H_F_MDS`, `TA_F` and `PA_F`, with
+  `-9999` or an empty field as missing. A visitor's file can have `WS`, `H`, `TA` and
+  `PA` instead, and the columns can be in any order. A row missing any input is dropped.
+- Site ID, latitude, longitude, ecosystem and `UTC_OFFSET` come from `BIF`. ICOS names
+  its groups `GRP_LOCATION` and AmeriFlux `LOCATION`, so `fluxnet.py` reads both.
+- A file with no metadata, like a bare CSV, makes the page ask for latitude, longitude
+  and `z - d`. A site code in the file name that the Shuttle lists fills in the place.
+
+`fluxnet.py` then fills the page's usual table, so runs, stepping and exports need no
+special case. It does this again if the visitor changes `z - d`.
+
+### Estimated inputs
+
+| FluxPrint | From a file |
+| --- | --- |
+| `ustar` | `USTAR` |
+| `umean` | `WS_F` |
+| `wind_dir` | `WD`, see below |
+| `mo_length` | `compute_mo_length` from `USTAR`, `H_F_MDS`, `TA_F`, `PA_F` |
+| `v_sigma` | `compute_std_v`: 2 `USTAR`, crude |
+| `pblh` | `compute_pblh`: `USTAR` / f, crude |
+| `zm` | `VAR_INFO_HEIGHT` of `USTAR`, minus 0.67 of `HEIGHTC`, see below |
+
+The page and every export say which inputs were estimated. Against ETC's own inputs
+on the same half-hours, with `kljun2015`:
+
+| Site, month | `z - d` | `L` | `v_sigma` | `pblh` | 80% reach, ETC to estimated | 90% reach |
+| --- | --- | --- | --- | --- | --- | --- |
+| FR-Gri, June 2023 | 1.09 | 1.03 | 0.83 | 5.3 | 61 to 68 m | 131 to 143 m |
+| BE-Lon, July 2023 | 0.79 | 1.00 | 0.88 | 4.4 | 57 to 53 m | 118 to 127 m |
+| FR-Pue, July 2023 | 1.02 | 1.02 | 0.88 | 3.3 | 151 to 152 m | 313 to 317 m |
+| FI-Hyy, July 2021 | 1.09 | 1.02 | 1.16 | 3.4 | 244 to 253 m | 528 to 514 m |
+| DK-Sor, July 2023 | 1.09 | 1.10 | 1.22 | 4.1 | 557 to 544 m | 1,164 to 1,137 m |
+
+The first four columns are medians of estimated over ETC. `L` has the same sign in 96 to
+98% of half-hours. `pblh` is far too high, but it barely moves the footprint: most of
+the change in reach comes from `z - d`, and the rest partly cancels it. Five sites and
+one month each is a spot check, not a validation.
+
+`compute_pblh` gives a negative height south of the equator, so `fluxnet.py` passes it
+the latitude's absolute value. The published 0.4.0 still has this.
+
+### `z - d`
+
+- The sensor height is the `USTAR` entry in force on each date. Masts that move with
+  the crop are followed: FR-Gri has 35 dated heights.
+- Canopy height is the largest `HEIGHTC` mean on each date, the tallest species at a
+  forest. Other statistics and dead trees are left out, and a date can be a year, a day
+  or a minute.
+- Each half-hour takes the latest reading. Before the first one it takes the median of
+  all readings, because archives can start decades earlier and the first reading can
+  be bare soil (FR-Gri) or a partial survey (DK-Sor). The page says when a period falls
+  outside the readings, or when one reading stands for all dates.
+- A visitor can type a value, which replaces all this. Where the file lacks a height,
+  the page requires one.
+- A half-hour with nothing left above zero is dropped.
+
+At five forests this gives 17% below to 32% above ETC's own `z - d`. Stand means give 8%
+to 45% above it, because they count the understorey. The heights can be worked out for
+all 19 ICOS-hub archives here, and for 8 of 24 AmeriFlux and 6 of 8 TERN ones taken at
+random. The rest lack `HEIGHTC`, or a sensor height at AU-Ya1.
+
+### Wind direction in the files
+
+`WD` is taken as reported. Against the wind data of the ICOS tab, by year to 2024:
+
+| Site | `WD` comes from | Difference |
+| --- | --- | --- |
+| BE-Lon, BE-Vie, NL-Loo | Sonic | -2 to +5 degrees |
+| FI-Hyy | Vane | -7 degrees |
+| FR-Gri | 2D sonic | -6 to -14 degrees |
+| DK-Sor | 2D sonic | -30 degrees |
+| FR-Pue | 2D sonic | +121 to +129 degrees from 2022, 0 in 2021 |
+
+So when `VAR_INFO_MODEL` names something other than a sonic (`SA-...`), the page warns
+that the direction needs checking. Reach and area do not depend on it, but the map does.
+Which of the two is right at FR-Pue is unknown, and it is worth asking the site team.
+
+### Links and citations
+
+- A link can name a Shuttle site, its dates and form (`shuttle=`). Opening it selects
+  the site and asks for the archive, and the form stays once it is loaded.
+- A link cannot carry a file. For a file the Shuttle does not list, the page clears its
+  address and says so.
+- A file that matches the Shuttle's current archive gets its citation. Any other
+  archive names itself and its data policy, so an older download is not cited as the
+  current one.
+
 ## Files
 
 | Path | What it is |
 | --- | --- |
 | `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
-| `scripts/build_site.py` | Reads ICOS zarr and fetches the wheels into `_site/` (not in git) |
+| `web/archive.js`, `web/fluxnet.py` | Reading a file, and turning it into the page's rows |
+| `tests/test_web_fluxnet.py` | Metadata and estimates, run natively with the package's tests |
+| `scripts/build_site.py` | Reads ICOS zarr, the Shuttle's hubs and the wheels into `_site/` (not in git) |
 | `.github/workflows/pages.yml` | Builds on push and daily, deploys to GitHub Pages |
 | `.gitlab-ci.yml` | The same build for GitLab Pages on forge INRAE, see below |
 
@@ -246,46 +382,43 @@ load only when their button is clicked (69 MB with all of them).
 - GitHub Pages lets browsers keep files for 10 minutes, so a returning visitor can
   get a mix of old and new files just after a code change. A reload after that
   time fixes it.
-- Exports carry the ICOS citation, as CC BY 4.0 requires: NetCDF attributes,
+- Exports carry the data citation, as CC BY 4.0 requires: NetCDF attributes,
   GeoTIFF tags, a GeoJSON member, and `CITATION.txt` in the Shapefile zip.
+- FLUXNET archives also ask for an acknowledgment. The citation points to the archive's
+  `DATA_POLICY_LICENSE_AND_INSTRUCTIONS.txt` rather than repeating it.
+- Only the columns above are read, so a `MO_LENGTH` or `V_SIGMA` column in a visitor's
+  own file is ignored. Units must be FLUXNET's: `PA` in kPa, `TA` in degrees C. They are
+  not checked.
+- ZIP64 files are refused with a message. No archive here needs it.
+- One file at a time: loading another replaces it.
+- The labels say half-hours for an hourly file, with a note under the result.
 - Aerial tiles come from Esri and street tiles from OpenStreetMap, with attribution
   on the map. Their usage terms were not reviewed for a busy public page.
 
 ## Other data sources and hosts
 
-Checked on 2026-11-07. The forge job is written but has not run, and the rest is not
-built.
+Checked on 2026-11-07. The forge job is written but has not run.
 
 ### FLUXNET Shuttle
 
-A switch on the page would be easy, but the data behind it is not like ICOS zarr.
+Built, see [FLUXNET Shuttle and your own file](#fluxnet-shuttle-and-your-own-file).
+What it cannot match in the ICOS tab:
 
-| | ICOS zarr, used now | FLUXNET Shuttle |
+| | ICOS zarr | FLUXNET Shuttle |
 | --- | --- | --- |
-| Sites | 37 on the page | 338 through the ICOS hub (June 2026 snapshot), plus AmeriFlux and TERN |
-| Latest data | About two days old | Archives checked end in 2024 |
-| `mo_length`, `v_sigma`, `pblh` | Per half-hour from ETC | Not in the files, so estimated, `v_sigma` and `pblh` crudely |
-| `z - d` | From `ZL * MO_LENGTH` | Not in the files, see below |
-| Access | Zarr, column by column | One ZIP per site, about 10 MB per site-year |
+| Sites | 37 | 784 |
+| Latest data | About two days old | Mostly 2024 to 2026, some far older |
+| `mo_length`, `v_sigma`, `pblh` | Per half-hour from ETC | Estimated, `v_sigma` and `pblh` crudely |
+| `z - d` | From `ZL * MO_LENGTH` | Worked out from metadata, or typed |
+| Access | Baked, one click | One click at TERN, one download at the other hubs |
 
-- **`z - d`:** sensor heights are in the archive metadata (`VAR_INFO_HEIGHT`). Canopy
-  height (`HEIGHTC`) is in the 18 European and JapanFlux archives checked, and not in
-  the 16 AmeriFlux ones, which all come from one site cluster.
-- **Baking does not fit.** The ICOS hub's 2,795 site-years come to as much as 1.6 GB
-  in the page's format, over the 1 GB GitHub Pages limit, from about 28 GB of archives
-  per rebuild.
-- **A browser cannot fetch it.** `data.icos-cp.eu` sends no CORS header, and its
-  download link sets a licence cookie first. AmeriFlux downloads can also take a
-  name and an intended use.
-
-The route that fits a static page is a file option. A visitor downloads a site with
-the Shuttle and drops the ZIP on the page, which reads `FLUXMET_HH`, estimates the
-missing inputs with `fluxprint` and asks for `z - d` when it cannot work it out.
-Nothing is hosted, so size and redistribution stop mattering, and AmeriFlux and TERN
-sites work too.
+**Baking does not fit,** so the hubs' sites cannot be one click. The ICOS hub's 2,795
+site-years come to as much as 1.6 GB in the page's format, over the 1 GB GitHub Pages
+limit, from about 28 GB of archives per rebuild.
 
 The 49 ICOS sites with released data but no near-real-time data are no shortcut. Only
-GL-ZaF has every input. The others lack `PBLH`, and often `MO_LENGTH` or `V_SIGMA`.
+GL-ZaF has every input. The others lack `PBLH`, and often `MO_LENGTH` or `V_SIGMA`. In
+the FLUXNET Shuttle tab they do work, with the estimates above.
 
 ### GitHub free plan
 

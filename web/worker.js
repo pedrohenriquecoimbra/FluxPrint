@@ -21,7 +21,9 @@ async function start() {
 import micropip
 await micropip.install(${JSON.stringify(urls)}, deps=False)
 `);
-  python.FS.writeFile("/tmp/tool.py", await (await fetch("tool.py")).text());
+  for (const module of ["fluxnet.py", "tool.py"]) {
+    python.FS.writeFile(`/tmp/${module}`, await (await fetch(module)).text());
+  }
   await python.runPythonAsync(`
 import sys
 sys.path.insert(0, "/tmp")
@@ -55,9 +57,27 @@ async function exportFile({ id, kind }) {
   postMessage({ type: "file", id, name: path.split("/").pop(), bytes: bytes.buffer }, [bytes.buffer]);
 }
 
+async function describe({ id, bif, varinfo }) {
+  const python = await ready;
+  python.globals.set("bif_text", bif);
+  python.globals.set("varinfo_text", varinfo);
+  const info = JSON.parse(await python.runPythonAsync("tool.describe_file(bif_text, varinfo_text)"));
+  postMessage({ type: "info", id, info });
+}
+
+async function prepare({ id, raw, options }) {
+  const python = await ready;
+  python.FS.writeFile("/tmp/raw.bin", new Uint8Array(raw));
+  python.globals.set("options_text", JSON.stringify(options));
+  const counts = JSON.parse(await python.runPythonAsync("tool.prepare(options_text)"));
+  const table = python.FS.readFile("/tmp/table.bin").buffer;
+  postMessage({ type: "table", id, counts, table }, [table]);
+}
+
+const JOBS = { run, export: exportFile, describe, prepare };
+
 self.onmessage = ({ data }) => {
-  const job = data.type === "run" ? run : exportFile;
-  job(data).catch((error) => fail(data.id, error));
+  JOBS[data.type](data).catch((error) => fail(data.id, error));
 };
 
 ready.then(

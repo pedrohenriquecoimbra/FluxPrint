@@ -22,7 +22,12 @@ data carries on from where it ends:
   The sensor is chosen by comparing the sensors with the eddy-covariance wind
   direction in the near-real-time window. A site where none agrees keeps its
   near-real-time data only.
+
+The FLUXNET Shuttle's sites are listed in data/shuttle.json, from the three hubs the
+Shuttle reads. Only the list is copied: the archives stay at their hubs.
 """
+import csv
+import io
 import json
 import re
 import shutil
@@ -41,6 +46,9 @@ WEB = ROOT / "web"
 OUT = ROOT / "_site"
 NRT = "https://zarr.icos-cp.eu/icos-eco-nrt.zarr"
 RELEASED = "https://zarr.icos-cp.eu/icos-fluxnet.zarr"
+ICOS_SPARQL = "https://meta.icos-cp.eu/sparql"
+AMERIFLUX_API = "https://amfcdn.lbl.gov/api/v2/"
+TERN_FLUXNET = "https://dap.tern.org.au/thredds/fileServer/ecosystem_process/fluxnet/"
 
 PACKAGES = ["fluxprint==0.4.0", "regorator==0.2.0"]     # served with the page, so a visitor never needs PyPI
 
@@ -52,6 +60,24 @@ MAX_WD_DIFFERENCE = 20.0    # degrees between a sensor and the EC wind direction
 MAX_SECTOR_SHARE = 0.6      # one 45-degree sector above this is a stuck sensor
 MIN_RECORDS = 48
 MIN_SITES = 20      # fewer means ICOS failed, so keep the page already online
+ARCHIVE_NAME = re.compile(r"[A-Z]+_([A-Z]{2}-\w{3})_FLUXNET_(\d{4})-(\d{4})_v\d+\.\d+_r(\d+)\.zip")     # as the Shuttle requires
+ICOS_ARCHIVES = """
+prefix cpmeta: <http://meta.icos-cp.eu/ontologies/cpmeta/>
+prefix prov: <http://www.w3.org/ns/prov#>
+select ?dobj ?stationName ?fileName ?size ?lat ?lon ?ecosystemType ?citationString
+where {
+    ?dobj cpmeta:hasObjectSpec <http://meta.icos-cp.eu/resources/cpmeta/miscFluxnetArchiveProduct> .
+    ?dobj cpmeta:wasAcquiredBy/prov:wasAssociatedWith ?station .
+    ?dobj cpmeta:hasSizeInBytes ?size .
+    ?dobj cpmeta:hasName ?fileName .
+    ?dobj cpmeta:hasCitationString ?citationString .
+    ?station cpmeta:hasName ?stationName .
+    ?station cpmeta:hasLatitude ?lat .
+    ?station cpmeta:hasLongitude ?lon .
+    OPTIONAL { ?station cpmeta:hasEcosystemType ?ecosystemType . }
+    FILTER NOT EXISTS {[] cpmeta:isNextVersionOf ?dobj}
+}
+"""
 
 
 def sites_in(store):
@@ -188,6 +214,84 @@ def build_site(site, in_nrt, in_released):
                 skipped=skipped)
 
 
+def shuttle_entry(hub, product, name, lat, lon, igbp, link, citation, size=None):
+    """A site for the page's list, or None for an archive the Shuttle would skip."""
+    match = ARCHIVE_NAME.fullmatch(product)
+    if not match or not citation:
+        return None
+    site, first, last, _ = match.groups()
+    return site, dict(name=name, lat=round(float(lat), 6), lon=round(float(lon), 6), igbp=igbp, hub=hub,
+                      years=[int(first), int(last)], product=product, link=link, citation=citation.strip(), size=size)
+
+
+def icos_hub():
+    """Sites from the ICOS hub, which also holds the European, Asian and African networks."""
+    response = requests.post(ICOS_SPARQL, data=dict(query=ICOS_ARCHIVES), headers=dict(Accept="application/json"), timeout=120)
+    response.raise_for_status()
+    for row in response.json()["results"]["bindings"]:
+        value = {key: item["value"] for key, item in row.items()}
+        identifier = value["dobj"].rsplit("/", 1)[-1]
+        yield shuttle_entry(
+            "ICOS", value["fileName"], value["stationName"], value["lat"], value["lon"],
+            value.get("ecosystemType", "").rsplit("igbp_", 1)[-1],
+            f"https://data.icos-cp.eu/licence_accept?ids=%5B%22{identifier}%22%5D",
+            value["citationString"], int(value["size"]))
+
+
+def ameriflux_hub():
+    """Sites from AmeriFlux, asked for the way the Shuttle asks."""
+    response = requests.get(f"{AMERIFLUX_API}site_info_display/AmeriFlux", timeout=120)
+    response.raise_for_status()
+    sites = {site["site_id"]: site for site in response.json()["values"] if site.get("grp_publish_fluxnet")}
+    files = requests.post(f"{AMERIFLUX_API}amf_shuttle_data_files_and_manifest", timeout=120, json=dict(
+        user_id="fluxnetshuttle", data_product="FLUXNET", data_variant="FULLSET", site_ids=list(sites)))
+    files.raise_for_status()
+    citations = requests.post(f"{AMERIFLUX_API}citations/FLUXNET", json=dict(site_ids=list(sites)), timeout=120)
+    citations.raise_for_status()
+    citation = {item["site_id"]: item.get("citation") for item in citations.json()["values"]}
+    for file in files.json()["data_urls"]:
+        site = sites[file["site_id"]]
+        place = site["grp_location"]
+        yield shuttle_entry(
+            "AmeriFlux", file["url"].split("?")[0].rsplit("/", 1)[-1], site["site_name"], place["location_lat"],
+            place["location_long"], site["grp_igbp"].get("igbp"), file["url"], citation.get(file["site_id"]),
+            file["download_size"])
+
+
+def tern_hub():
+    """Sites from TERN, each with its newest run."""
+    def table(name):
+        response = requests.get(f"{TERN_FLUXNET}{name}", timeout=120)
+        response.raise_for_status()
+        return csv.DictReader(io.StringIO(response.text))
+
+    about = {}
+    for row in table("BIF_all_sites.csv"):
+        about.setdefault(row["SITE_ID"], {})[row["VARIABLE"]] = row["DATAVALUE"]
+    products = sorted(table("TERN_THREDDS_catalogue.csv"), key=lambda row: row["PRODUCT_URL"])
+    for row in products:
+        site = about.get(row["SITE_ID"])
+        if site:
+            yield shuttle_entry(
+                "TERN", row["PRODUCT_URL"].rsplit("/", 1)[-1], site.get("SITE_NAME"), site["LOCATION_LAT"],
+                site["LOCATION_LONG"], site.get("IGBP"), row["PRODUCT_URL"],
+                f"{row['PRODUCT_CITATION'].strip()} {row['PRODUCT_ID']}")
+
+
+def shuttle_sites():
+    """Every site the Shuttle offers. A hub that fails only leaves its sites out."""
+    sites = {}
+    for hub in (icos_hub, ameriflux_hub, tern_hub):
+        try:
+            found = dict(entry for entry in hub() if entry)
+        except Exception as error:
+            print(f"{hub.__name__}: skipped ({type(error).__name__}: {error})", flush=True)
+            continue
+        print(hub.__name__, len(found), "sites", flush=True)
+        sites.update(found)
+    return dict(sorted(sites.items()))
+
+
 def download_wheels():
     """Put the packages next to the page, listed for the worker to install."""
     folder = OUT / "wheels"
@@ -222,7 +326,9 @@ def main():
         sys.exit(f"Only {len(sites)} sites could be read, so the build stops here.")
     catalogue = dict(built=datetime.now(timezone.utc).strftime("%Y-%m-%d"), columns=COLUMNS, sites=sites)
     (OUT / "data" / "sites.json").write_text(json.dumps(catalogue, separators=(",", ":")), encoding="utf-8")
-    print("wrote", len(sites), "sites to", OUT)
+    listed = dict(built=catalogue["built"], sites=shuttle_sites())
+    (OUT / "data" / "shuttle.json").write_text(json.dumps(listed, separators=(",", ":")), encoding="utf-8")
+    print("wrote", len(sites), "sites and", len(listed["sites"]), "Shuttle sites to", OUT)
 
 
 if __name__ == "__main__":

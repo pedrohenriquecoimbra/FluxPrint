@@ -24,6 +24,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body { height: 100%; margin: 0; }
 
@@ -94,6 +95,16 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 }
 .chips button:hover:enabled { border-color: var(--accent); }
 
+.tabs { display: grid; grid-template-columns: auto 1fr auto; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; }
+.tabs button { padding: 7px 10px; border: 0; background: none; color: var(--ink); font-size: 13px; }
+.tabs button + button { border-left: 1px solid var(--line); }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.loader { display: flex; flex-direction: column; gap: 8px; }
+.loader .hint { margin: 0; }
+a.secondary { text-align: center; text-decoration: none; }
+input[type="file"] { padding: 5px; font-size: 13px; }
+
 .link { padding: 0; border: 0; background: none; color: var(--accent); font-size: 13px; text-decoration: underline; }
 .hint { margin: -4px 0 0; color: var(--muted); font-size: 13px; min-height: 1.2em; }
 
@@ -141,7 +152,6 @@ footer { margin-top: auto; padding-top: 8px; color: var(--muted); font-size: 12p
   padding: 8px 12px;
   border-top: 1px solid var(--line);
 }
-.timeline[hidden] { display: none; }
 .transport { display: flex; gap: 4px; }
 .transport button {
   display: grid;
