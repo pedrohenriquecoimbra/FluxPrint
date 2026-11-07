@@ -119,6 +119,11 @@ dt { color: var(--muted); }
 dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
 .notes, .citations { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
+#checks { margin-top: -2px; }
+#checks li:first-child { margin-top: 0; }
+#contents { margin-top: 0; }
+#contents summary { cursor: pointer; }
+#contents dl { margin-top: 4px; font-size: 13px; }
 .notes li { margin-top: 5px; color: var(--warn); }
 .citations li { margin-top: 6px; color: var(--muted); overflow-wrap: anywhere; }
 

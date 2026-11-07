@@ -113,24 +113,64 @@ archives in the older FULLSET format, as the Shuttle does.
 
 ### Reading a file
 
-`archive.js` runs in its own worker, so Python and the map carry on:
+`archive.js` runs in its own worker, so Python and the map carry on. What a file is
+decides how it is read, not its name:
 
 - In a ZIP it reads the directory at the end of the file, then inflates only the data
   file, `BIF` and `BIFVARINFO_HH` with `DecompressionStream`. Hourly sites such as
-  US-Ha1 name them `FLUXMET_HR` and `BIFVARINFO_HR`.
+  US-Ha1 name them `FLUXMET_HR` and `BIFVARINFO_HR`. Older archives name the data file
+  `FULLSET_HH`, and `__MACOSX` entries are skipped.
 - The data file is streamed and never held whole. Only the columns needed are kept, at
   most 30 MB for 30 years. A 216 MB ZIP took 4.5 s, with the page's own thread stalling
   for at most 26 ms, and a 260 MB one, 765 MB unpacked, took 5.8 s.
 - It keeps `TIMESTAMP_START`, `USTAR`, `WS_F`, `WD`, `H_F_MDS`, `TA_F` and `PA_F`, with
-  `-9999` or an empty field as missing. A visitor's file can have `WS`, `H`, `TA` and
-  `PA` instead, and the columns can be in any order. A row missing any input is dropped.
+  `-9999`, an empty field or a word as missing. A visitor's file can have `WS`, `H`, `TA`
+  and `PA` instead, in any order and in any case, after `#` comment lines. A row missing
+  any input is not used.
 - Site ID, latitude, longitude, ecosystem and `UTC_OFFSET` come from `BIF`. ICOS names
   its groups `GRP_LOCATION` and AmeriFlux `LOCATION`, so `fluxnet.py` reads both.
 - A file with no metadata, like a bare CSV, makes the page ask for latitude, longitude
   and `z - d`. A site code in the file name that the Shuttle lists fills in the place.
 
-`fluxnet.py` then fills the page's usual table, so runs, stepping and exports need no
-special case. It does this again if the visitor changes `z - d`.
+`fluxnet.py` then checks the columns and fills the page's usual table, so runs, stepping
+and exports need no special case. It does this again if the visitor changes `z - d`.
+
+### What a visitor is told
+
+A local file can be wrong in many ways, so the page says what it found and what to do.
+Trouble that stops a footprint shows as a message, and the file loaded before stays in
+use. Anything else stays listed above the form and goes into the exports (`file_checks`).
+"What the file holds" gives each input's share of records and the time step.
+
+| What is wrong | What the page does |
+| --- | --- |
+| PDF, NetCDF, RAR, 7-Zip, gzip, Excel, binary | Stops, naming what the file is |
+| A saved web page, a ZIP cut short | Stops, and says to download it again |
+| A damaged, locked or ZIP64 archive, or one holding only another ZIP | Stops and says why |
+| The archive's `BIF`, `ERA5` or daily file | Stops, and points to `FLUXMET_HH` |
+| Semicolons, tabs, UTF-16, no header, no rows | Stops and says how to save it |
+| A column is missing | Stops and names it, and `WD_1_1_1` if that is there instead |
+| Time stamps in another form, or changed by a spreadsheet | Stops, showing what it read |
+| Most of a column outside its range: hPa, Pa, Kelvin, cm/s | Stops if nothing is left, naming the unit |
+| `WD` in radians, or records a day or more apart | Stops |
+| An input with no values, or inputs that never meet | Stops, with each input's share |
+| Another missing code, such as -999 or -6999 | Treats it as missing and warns |
+| Over 1% of a column outside its range | Treats those as missing and warns |
+| `WD` in one 45-degree sector over 60% of the time | Warns of a stuck sensor |
+| `WD` from a sensor other than a sonic | Warns, see below |
+| Repeated times, unreadable times, a step other than 30 or 60 minutes | Warns |
+| Under 48 usable records, or under half | Warns, naming the shortest input |
+| Several data files in a ZIP | Reads the first and warns |
+| No place in the metadata, or an impossible one | Asks for latitude and longitude |
+| No heights, or heights that leave nothing above `d` | Asks for `z - d` |
+| `z - d` zero or less on some dates, or over 350 m | Warns |
+| A typed `z - d` above the sensor height | Notes it with the result |
+
+The ranges are in `RANGES` in `fluxnet.py`. Under 1%, odd values count as missing without
+a word, because real archives have them: `USTAR` reaches 189 m/s at FI-Hyy, and a value
+of 49.9 m/s sat in FR-Gri's June 2023. None of the 36 real archives here stops, and they
+raise two warnings only: too few records with every input (18) and a `WD` sensor other
+than a sonic (7).
 
 ### Estimated inputs
 
@@ -215,7 +255,8 @@ Which of the two is right at FR-Pue is unknown, and it is worth asking the site 
 | --- | --- |
 | `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
 | `web/archive.js`, `web/fluxnet.py` | Reading a file, and turning it into the page's rows |
-| `tests/test_web_fluxnet.py` | Metadata and estimates, run natively with the package's tests |
+| `tests/test_web_fluxnet.py` | Metadata, checks and estimates, run natively with the package's tests |
+| `tests/file_cases.py` | Makes 82 broken and odd files and a check to run them in a browser |
 | `scripts/build_site.py` | Reads ICOS zarr, the Shuttle's hubs and the wheels into `_site/` (not in git) |
 | `.github/workflows/pages.yml` | Builds on push and daily, deploys to GitHub Pages |
 | `.gitlab-ci.yml` | The same build for GitLab Pages on forge INRAE, see below |
@@ -359,8 +400,36 @@ expect 6 to 14 ms.
   The timeline closes when the model changes. A day where nothing passes gives the
   reason.
 - All 77 ICOS links on the page open.
+- Loaded files match a separate native run that reads the CSV with pandas and works out
+  `z - d` apart from `fluxnet.py`: records used, peak, reach and area for FR-Gri (June
+  2023, and Hsieh by day), FI-Hyy (July 2021), US-PFL (August 2019, `z - d` typed) and
+  AU-Ade (read from TERN, south of the equator), and one half-hour at FR-Gri.
+- Those rows are float32, as baked sites are. On doubles a native run keeps fewer
+  records where `USTAR` sits on the model's limit of 0.1: 1,050 against 1,055 at FR-Gri.
+- FR-Fon still gives 1,297 of 1,392, peak 36 m SW, 80% 447 m and 42.2 ha, 90% 959 m and
+  181.6 ha, also under `/FluxPrint/`.
+- All 35 ZIPs at hand read: 19 from the ICOS hub and 16 from AmeriFlux, plus hourly
+  US-Ha1. So did a bare CSV with no metadata, other column names and CRLF line ends,
+  which gave the same footprint as its archive.
+- All 82 cases in `tests/file_cases.py` give the expected message in Chromium. Before the
+  checks, 26 did: pressure in hPa, Kelvin and radians loaded with no word, and a Mac's
+  ZIP failed.
+- By hand: a hub that is missing the file and one that cannot be reached, a browser
+  without `DecompressionStream` (a ZIP stops, a CSV works), a gap inside a file, several
+  files dropped at once, and a file where no half-hour passes the model's checks.
+- Stepping through a file: previous, next, play, dragging and rejected half-hours, at 85
+  ms a footprint.
+- All four downloads from a loaded file, for a period and for one half-hour, reopened
+  natively. Each says which inputs were estimated, where `z - d` came from and the time
+  zone. The GeoJSON of a file with a warning carries it.
+- Run stays blocked until `z - d`, latitude and longitude are given. Cancel during
+  reading, dropping a file on the page and a `shuttle=` link. The phone layout.
+- `build_site.py` for one site in a clean environment with only the workflow's packages.
 
-Not tested: the workflow on GitHub itself, the job on the forge, and other browsers.
+Not tested: the workflow on GitHub itself, the job on the forge, other browsers, a real
+file dialog (the tests hand the page a `File`), a folder dropped on the page, a download
+through the hubs' links in a browser, and a whole FLUXNET2015 archive (`FULLSET_HH` was
+tried on a made-up one, and the file names and columns of a real AmeriFlux one were read).
 
 First-visit download, cached afterwards: 35 MB to compute, and export libraries
 load only when their button is clicked (69 MB with all of them).
@@ -387,8 +456,11 @@ load only when their button is clicked (69 MB with all of them).
 - FLUXNET archives also ask for an acknowledgment. The citation points to the archive's
   `DATA_POLICY_LICENSE_AND_INSTRUCTIONS.txt` rather than repeating it.
 - Only the columns above are read, so a `MO_LENGTH` or `V_SIGMA` column in a visitor's
-  own file is ignored. Units must be FLUXNET's: `PA` in kPa, `TA` in degrees C. They are
-  not checked.
+  own file is ignored.
+- A wrong unit is caught only if it leaves the plausible range. `WS` in km/h or a `TA` of
+  mixed units can pass.
+- Daylight saving in a visitor's time stamps cannot be seen. FLUXNET's are local standard
+  time.
 - ZIP64 files are refused with a message. No archive here needs it.
 - One file at a time: loading another replaces it.
 - The labels say half-hours for an hourly file, with a note under the result.

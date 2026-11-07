@@ -93,8 +93,8 @@ def test_describe_reads_a_network_without_group_prefixes():
 
 
 def test_describe_of_a_file_without_metadata_is_empty():
-    assert fluxnet.describe("", "") == dict(site=None, name=None, igbp=None, lat=None, lon=None, utc_offset=None,
-                                            product=None, sensor=[], canopy=[], height_span=None, wind_sensor=None)
+    assert fluxnet.describe("", "") == dict(site=None, name=None, igbp=None, lat=None, lon=None, utc_offset=None, product=None,
+                                            sensor=[], canopy=[], height_span=None, height_notes=[], wind_sensor=None)
 
 
 def test_wind_sensor_is_the_latest_one():
@@ -124,6 +124,141 @@ def test_rows_sort_split_by_year_and_drop_duplicates():
     rows, years = fluxnet.rows(raw, 48.0, [], [], zm=12.0)
     assert years == {"2023": 1, "2024": 1}
     assert rows[:, 0] == pytest.approx([364 * 48 + 47, 0])
+
+
+def month(ustar=None, ws=None, wd=None, heat=None, ta=None, pa=None, count=1440, step=30):
+    """A month of plausible raw columns, with any column replaced."""
+    rng = np.random.default_rng(1)
+    time = (np.datetime64("2020-06-01T00:00", "ms") + np.arange(count) * np.timedelta64(step, "m")).astype(float)
+    defaults = dict(ustar=rng.uniform(0.15, 0.8, count), ws=rng.uniform(1, 6, count), wd=rng.uniform(0, 360, count),
+                    heat=rng.uniform(-40, 300, count), ta=rng.uniform(8, 24, count), pa=rng.uniform(98, 102, count))
+    given = dict(ustar=ustar, ws=ws, wd=wd, heat=heat, ta=ta, pa=pa)
+    return np.column_stack([time] + [defaults[key] if given[key] is None else given[key] + 0 * defaults[key] for key in defaults])
+
+
+USED = ["USTAR", "WS_F", "WD", "H_F_MDS", "TA_F", "PA_F"]
+
+
+def test_review_of_a_sound_file_says_nothing():
+    result = fluxnet.review(month(), USED)
+    assert (result["errors"], result["warnings"]) == ([], [])
+    assert (result["total"], result["usable"], result["minutes"]) == (1440, 1440, 30)
+    assert (result["first"], result["last"]) == ("2020-06-01", "2020-06-30")
+    assert [column["share"] for column in result["columns"]] == [1] * 6
+
+
+@pytest.mark.parametrize("column, scale, offset, name, unit", [
+    ("pa", 10, 0, "PA_F", "kPa"), ("pa", 1000, 0, "PA_F", "kPa"), ("ta", 1, 273.15, "TA_F", "degrees C"), ("ustar", 100, 0, "USTAR", "m/s"),
+])
+def test_review_stops_a_file_in_the_wrong_unit(column, scale, offset, name, unit):
+    raw = month()
+    slot = dict(ustar=1, ta=5, pa=6)[column]
+    raw[:, slot] = raw[:, slot] * scale + offset
+    result = fluxnet.review(raw, USED)
+    assert result["usable"] == 0
+    assert len(result["errors"]) == 1
+    assert name in result["errors"][0] and unit in result["errors"][0]
+
+
+def test_review_stops_radians():
+    raw = month()
+    raw[:, 3] = np.radians(raw[:, 3])
+    assert "radians" in fluxnet.review(raw, USED)["errors"][0]
+
+
+def test_review_treats_another_missing_code_as_missing():
+    raw = month()
+    raw[::2, 1] = -999
+    result = fluxnet.review(raw, USED)
+    assert result["usable"] == 720
+    assert "-999" in result["warnings"][0] and "-9999" in result["warnings"][0]
+    assert len(fluxnet.rows(raw, 48.0, [], [], zm=12.0)[0]) == 720
+
+
+def test_review_counts_some_odd_values():
+    raw = month()
+    raw[::50, 3] = 400
+    result = fluxnet.review(raw, USED)
+    assert result["usable"] == 1440 - 29
+    assert result["warnings"] == ["Counted as missing: 29 values of WD outside 0 to 360 degrees."]
+
+
+def test_review_passes_over_a_stray_value():
+    raw = month()
+    raw[7, 6] = 200
+    result = fluxnet.review(raw, USED)
+    assert (result["usable"], result["warnings"]) == (1439, [])
+
+
+def test_review_names_an_empty_column():
+    raw = month()
+    raw[:, 3] = np.nan
+    assert fluxnet.review(raw, USED)["errors"] == ["WD has no values in this file, and a footprint needs them."]
+
+
+def test_review_explains_inputs_that_never_meet():
+    raw = month()
+    raw[:700, 1] = np.nan
+    raw[700:, 3] = np.nan
+    error = fluxnet.review(raw, USED)["errors"][0]
+    assert "never in the same half-hour" in error and "USTAR 51%" in error and "WD 49%" in error
+
+
+def test_review_stops_daily_data():
+    assert fluxnet.review(month(count=60, step=1440), USED)["errors"][0].startswith("Records are a day apart")
+    assert fluxnet.review(month(count=60, step=7 * 1440), USED)["errors"][0].startswith("Records are 7 days apart")
+
+
+@pytest.mark.parametrize("step, says", [(10, "10 minutes apart"), (180, "180 minutes apart")])
+def test_review_questions_an_unusual_step(step, says):
+    assert says in fluxnet.review(month(step=step), USED)["warnings"][0]
+
+
+def test_review_accepts_hourly_data():
+    result = fluxnet.review(month(step=60), USED)
+    assert (result["minutes"], result["warnings"]) == (60, [])
+
+
+def test_review_reports_repeated_and_unreadable_rows():
+    raw = month()
+    result = fluxnet.review(np.vstack([raw, raw[:5]]), USED, unreadable=1)
+    assert result["usable"] == 1440
+    assert result["warnings"] == ["Left out: 5 rows repeating an earlier time.", "Left out: 1 row with no readable TIMESTAMP_START."]
+
+
+def test_review_warns_of_a_short_or_patchy_file():
+    assert "Only 3" in fluxnet.review(month(count=3), USED)["warnings"][0]
+    raw = month()
+    raw[:1000, 1] = np.nan
+    assert fluxnet.review(raw, USED)["warnings"] == ["Only 31% of records have every input, most of all for lack of USTAR."]
+
+
+def test_review_suspects_a_stuck_vane():
+    raw = month(wd=120.0)
+    assert "one 45-degree sector 100%" in fluxnet.review(raw, USED)["warnings"][0]
+
+
+def test_place_refuses_what_cannot_be_right():
+    def located(lat, lon):
+        return fluxnet.place(bif((1, "LOCATION", {"LOCATION_LAT": lat, "LOCATION_LONG": lon})))
+
+    assert located(48.5, 2.5) == (48.5, 2.5)
+    assert located(-13.1, 131.1) == (-13.1, 131.1)
+    assert located(999, 2.5) == (None, None)
+    assert located(48.5, 999) == (None, None)
+    assert located(0, 0) == (None, None)
+    assert located("north", 2.5) == (None, None)
+
+
+def test_height_review_flags_dates_with_nothing_left_and_odd_units():
+    sensor = [("2015-01-01T00:00", 30.0)]
+    span, notes = fluxnet.height_review(sensor, [("2020-06-01T00:00", 10.0), ("2020-06-10T00:00", 60.0)])
+    assert span == pytest.approx([6.55, 23.3])     # the sensor's date comes before any canopy reading, so it takes their median
+    assert "from 2020-06-10" in notes[0]
+    span, notes = fluxnet.height_review([("2015-01-01T00:00", 3000.0)], [("2018-01-01T00:00", 2000.0)])
+    assert span == pytest.approx([1660, 1660])
+    assert "not be in metres" in notes[0]
+    assert fluxnet.height_review(sensor, [("2020-06-01T00:00", 60.0)]) == (None, [])
 
 
 def test_boundary_layer_is_positive_in_both_hemispheres():

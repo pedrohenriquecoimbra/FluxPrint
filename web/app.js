@@ -320,9 +320,28 @@ function sourcesFor(site, from, to) {
 }
 
 function describeFile({ sources: [{ start, end }], file, ecosystem }) {
-  const worst = file.missing.indexOf(Math.max(...file.missing));
-  const short = file.count < file.total ? ` ${file.used[worst]} is missing most often.` : "";
-  return `${start} to ${end}. ${file.count.toLocaleString("en")} of ${file.total.toLocaleString("en")} ${file.unit} have every input.${short} ${ecosystem ?? ""}`;
+  return `${start} to ${end}. ${file.count.toLocaleString("en")} of ${file.total.toLocaleString("en")} ${file.unit} have every input. ${ecosystem ?? ""}`;
+}
+
+function showContents(site) {
+  const { checks = [], columns = [], minutes, windSensor } = site?.file ?? {};
+  fillList("checks", checks);
+  $("checks").hidden = !checks.length;
+  $("contents").hidden = !site?.file;
+  if (!site?.file) return;
+  const rows = [
+    ...columns.map(({ name, share }) => [name, `${Math.round(share * 100)}% of records`]),
+    ["Time step", minutes ? `${minutes} minutes` : "One record"],
+    ["Times", zone(site)],
+    ...(windSensor ? [["Wind sensor", windSensor]] : []),
+  ];
+  $("held").replaceChildren(...rows.flatMap(([term, value]) => {
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = term;
+    dd.textContent = value;
+    return [dt, dd];
+  }));
 }
 
 function describeCoverage(site) {
@@ -397,6 +416,7 @@ function selectSite(id, { keepDates = false } = {}) {
   $("steps").disabled = !id;
   const site = catalogue.sites[id];
   showOrigin(site);
+  showContents(site);
   showDetails(site);
   if (!site) {
     $("coverage").textContent = "";
@@ -475,10 +495,14 @@ function zone({ file }) {
 
 function fileProvenance(site) {
   if (!site.file) return {};
-  return { data_file: site.file.name, estimated_inputs: estimates(site.file), z_minus_d: heightSource(), times: zone(site) };
+  const { name, checks } = site.file;
+  const seen = checks.length ? { file_checks: checks.join(" | ") } : {};
+  return { data_file: name, estimated_inputs: estimates(site.file), z_minus_d: heightSource(), times: zone(site), ...seen };
 }
 
 function heightNote(from, to) {
+  const sensor = archive.sensor.at(-1)?.[1];
+  if (Number($("zm").value) > sensor) return `z - d is the value you entered, for every half-hour, but it is above the sensor height of ${sensor} m in the file.`;
   if ($("zm").value) return "z - d is the value you entered, for every half-hour.";
   const dates = archive.canopy.map(([date]) => date.slice(0, 10));
   const worked = "z - d comes from the file: sensor height (VAR_INFO_HEIGHT) minus 0.67 of canopy height (HEIGHTC).";
@@ -489,9 +513,9 @@ function heightNote(from, to) {
 
 // Against the wind data of the ICOS tab, WD from a sonic stays within 5 degrees at three sites. From a separate sensor
 // it sits 7 degrees off at FI-Hyy, 30 at DK-Sor and about 125 at FR-Pue from 2022 on.
-function windNote({ windSensor }) {
-  if (!windSensor || windSensor.startsWith("SA-")) return [];
-  return [`WD in this file comes from ${windSensor}, not the sonic, so check the footprint's direction. At FR-Pue such a WD sits about 125° from the sensor the ICOS tab uses.`];
+function windNote(sensor) {
+  if (!sensor || sensor.startsWith("SA-")) return [];
+  return [`WD in this file comes from ${sensor}, not the sonic, so check the footprint's direction. At FR-Pue such a WD sits about 125° from the sensor the ICOS tab uses.`];
 }
 
 function fileNotes(site, from, to) {
@@ -501,7 +525,6 @@ function fileNotes(site, from, to) {
   return [
     `Estimated, not measured: ${estimates(site.file)}. For one month at five ICOS sites, pblh ran 3 to 5 times ETC's own and reach stayed within 11%.`,
     heightNote(from, to),
-    ...windNote(site.file),
     `Times are ${zone(site)}.`,
     ...(site.file.unit === "hours" ? ["This file is hourly, so each record is an hour, not a half-hour."] : []),
     link,
@@ -579,6 +602,12 @@ function runOptions(site, half, from, to) {
   };
 }
 
+function noRows({ file, sources }) {
+  if (!file) return "No half-hours with complete data in this period.";
+  const { start, end } = sources[0];
+  return `No ${file.unit} with every input for these dates and hours. The file's usable ${file.unit} run from ${start} to ${end}, possibly with gaps.`;
+}
+
 function periodNotes(summary) {
   const notes = [];
   if (summary.used < 10) notes.push("Very few half-hours: this is not a climatology.");
@@ -602,7 +631,7 @@ async function runFootprint() {
     const { rows, times } = await selectRows(siteId, from, to, $("hours").value);
     if (!times.length) {
       showBusy(false);
-      showMessage("No half-hours with complete data in this period.");
+      showMessage(noRows(site));
       return;
     }
     $("status").textContent = workerReady ? "Computing footprints" : workerStatus;
@@ -748,7 +777,7 @@ async function startSteps(at) {
     const { rows, times } = await selectRows(siteId, from, to, $("hours").value);
     if (!times.length) {
       showBusy(false);
-      showMessage("No half-hours with complete data in this period.");
+      showMessage(noRows(catalogue.sites[siteId]));
       return;
     }
     $("status").textContent = workerReady ? "Computing footprints" : workerStatus;
@@ -852,6 +881,7 @@ function readFile(input, name) {
 // The page's site for a file: what its metadata says, else what the Shuttle's list says. The columns stay in
 // `archive` until the height and place are known, when prepareFile turns them into rows like a baked site's.
 function useArchive(read, info) {
+  const { review } = info;
   const id = info.site ?? read.name.match(SITE_CODE)?.[0] ?? read.name.replace(/\.\w+$/, "");
   const entry = shuttle?.sites[id];
   const listed = [info.product, read.name].includes(entry?.product);     // TERN's files carry another name inside
@@ -861,17 +891,18 @@ function useArchive(read, info) {
   archive = { raw: read.rows, sensor: info.sensor, canopy: info.canopy, span: info.height_span, prepared: null };
   catalogue.sites[FILE] = {
     id, lat, lon, name: info.name ?? entry?.name ?? read.name, ecosystem: info.igbp ?? entry?.igbp, years: {},
-    sources: [{ kind: "file", start: isoDate(read.first), end: isoDate(read.last), citation }],
+    sources: [{ kind: "file", start: review.first, end: review.last, citation }],
     file: {
-      name: read.name, used: read.used, count: read.count, total: read.total, missing: read.missing,
-      unit: read.step === 2 * HALF_HOUR ? "hours" : "half-hours", offset: info.utc_offset, listed, lacksPlace: lat === null || lon === null,
-      windSensor: info.wind_sensor,
+      name: read.name, used: read.used, count: review.usable, total: review.total, columns: review.columns, minutes: review.minutes,
+      unit: { 30: "half-hours", 60: "hours" }[review.minutes] ?? "records", offset: info.utc_offset, listed, lacksPlace: lat === null || lon === null,
+      windSensor: info.wind_sensor, checks: [...read.notices, ...review.warnings, ...info.height_notes, ...windNote(info.wind_sensor)],
     },
   };
   $("lat").value = lat ?? "";
   $("lon").value = lon ?? "";
   $("zm").value = linked?.get("shuttle") === id ? linked.get("zm") ?? "" : "";
-  $("height").textContent = heightHint(info);
+  const noPlace = lat === null ? "The file does not say where the site is, so enter its latitude and longitude. " : "";
+  $("height").textContent = `${noPlace}${heightHint(info)}`;
   fileMarker?.remove();
   fileMarker = null;
   if (lat !== null) placeFileMarker(catalogue.sites[FILE]);
@@ -891,6 +922,7 @@ function heightHint({ sensor, canopy, height_span: span }) {
     return `Worked out from the file: ${low === high ? low : `${low} to ${high}`}, sensor height minus 0.67 of canopy height. Type a value to use it instead.`;
   }
   if (sensor.length && !canopy.length) return `The sensor is at ${shown(sensor.at(-1)[1])}, but the file gives no canopy height, so enter z - d.`;
+  if (sensor.length) return `The file's heights leave nothing above the displacement height (sensor ${shown(sensor.at(-1)[1])}, canopy ${shown(canopy.at(-1)[1])}), so enter z - d.`;
   return "The file does not give the heights needed, so enter z - d: the sensor height minus the displacement height.";
 }
 
@@ -903,9 +935,11 @@ async function loadArchive(input, name) {
   startWorker();    // Python downloads while the file is read
   try {
     const [read] = await Promise.all([readFile(input, name), loadShuttle().catch(() => null)]);
-    if (!read.count) throw new Error(`No half-hour in ${read.name} has every input. ${read.used[read.missing.indexOf(Math.max(...read.missing))]} is missing most often.`);
-    $("status").textContent = workerReady ? "Reading the site's metadata" : workerStatus;
-    useArchive(read, await ask({ type: "describe", bif: read.bif, varinfo: read.varinfo }));
+    $("status").textContent = workerReady ? "Checking the file" : workerStatus;
+    const options = { used: read.used, unreadable: read.unreadable };
+    const info = await ask({ type: "describe", raw: read.rows, bif: read.bif, varinfo: read.varinfo, options });
+    if (info.review.errors.length) throw new Error(`${read.name} cannot give a footprint. ${info.review.errors.join(" ")}`);
+    useArchive(read, info);
     const { id } = catalogue.sites[FILE];
     const keepDates = linked?.get("shuttle") === id;
     showBusy(false);
@@ -921,7 +955,8 @@ async function loadArchive(input, name) {
   } catch (error) {
     stopReader();
     showBusy(false);
-    showMessage(input.url ? `${error.message} Download the archive and load it here instead.` : error.message);
+    const held = catalogue.sites[FILE] ? ` ${catalogue.sites[FILE].file.name} is still loaded.` : "";
+    showMessage(`${input.url ? `${error.message} Download the archive and load it here instead.` : error.message}${held}`);
   }
 }
 
@@ -1104,7 +1139,8 @@ $("file").addEventListener("change", (event) => {
 window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", (event) => {
   event.preventDefault();
-  const [file] = event.dataTransfer.files;
+  const files = [...event.dataTransfer.files];     // someone may drop all of an unpacked archive
+  const file = files.find(({ name }) => /\.zip$/i.test(name)) ?? files.find(({ name }) => /_(HH|HR)_/.test(name)) ?? files[0];
   if (file) loadArchive({ file }, file.name);
 });
 $("presets").addEventListener("click", (event) => {

@@ -13,6 +13,13 @@ import numpy as np
 from fluxprint.micrometeorology import compute_displacement, compute_mo_length, compute_pblh, compute_std_v
 
 RAW_COLUMNS = 7     # time, USTAR, WS, WD, H, TA, PA
+# What each input can plausibly read, and the unit the FLUXNET format gives it.
+RANGES = ((0, 10, "m/s"), (0, 60, "m/s"), (0, 360, "degrees"), (-800, 1500, "W m-2"), (-80, 60, "degrees C"), (40, 115, "kPa"))
+LOW, HIGH = (np.array(column, dtype=float) for column in list(zip(*RANGES))[:2])
+MAX_SECTOR_SHARE = 0.6      # one 45-degree sector above this suggests a stuck sensor
+MIN_RECORDS = 48
+ODD_SHARE = 0.01            # a smaller share of odd values is left out without a word: real archives have them
+TALLEST_TOWER = 350.0       # m
 DATE_FORMATS = {4: "%Y", 6: "%Y%m", 8: "%Y%m%d", 10: "%Y%m%d%H", 12: "%Y%m%d%H%M"}
 UNDATED = "1900-01-01T00:00"    # in force from the start
 
@@ -105,21 +112,134 @@ def measurement_height(times, sensor, canopy):
     return np.where(height > 0, height, np.nan)
 
 
+def place(bif):
+    """The site's latitude and longitude, or None for both if they cannot be right."""
+    lat, lon = (number(latest(bif, "LOCATION", variable)) for variable in ("LOCATION_LAT", "LOCATION_LONG"))
+    if lat is None or lon is None or abs(lat) > 90 or abs(lon) > 180 or (lat == 0 and lon == 0):
+        return None, None
+    return lat, lon
+
+
+def height_review(sensor, canopy):
+    """The range of z - d the heights give, and what the visitor should know about it."""
+    if not sensor or not canopy:
+        return None, []
+    changes = sorted({date for date, _ in sensor + canopy})
+    heights = measurement_height(np.array(changes, dtype="datetime64[m]"), sensor, canopy)
+    if not np.isfinite(heights).any():
+        return None, []
+    span = [float(np.nanmin(heights)), float(np.nanmax(heights))]
+    notes = []
+    if not np.isfinite(heights).all():
+        first = changes[int(np.argmin(np.isfinite(heights)))][:10]
+        notes.append(f"z - d comes out at zero or less on some dates, from {first} at first. Those half-hours are left out.")
+    if span[1] > TALLEST_TOWER:
+        notes.append(f"z - d reaches {span[1]:,.0f} m, so the heights in the file may not be in metres. Enter z - d if so.")
+    return span, notes
+
+
 def describe(bif, varinfo):
     """What a file's metadata says about its site. Whatever it does not say is None."""
     bif, varinfo = bif or "", varinfo or ""
     first = next(csv.DictReader(io.StringIO(bif)), {})
     sensor, canopy = sensor_heights(varinfo), canopy_heights(bif)
-    span = None
-    if sensor and canopy:
-        changes = sorted({date for date, _ in sensor + canopy})
-        heights = measurement_height(np.array(changes, dtype="datetime64[m]"), sensor, canopy)
-        span = [float(np.nanmin(heights)), float(np.nanmax(heights))] if np.isfinite(heights).any() else None
+    span, notes = height_review(sensor, canopy)
+    lat, lon = place(bif)
     return dict(
-        site=first.get("SITE_ID"), name=latest(bif, "HEADER", "SITE_NAME"), igbp=latest(bif, "IGBP", "IGBP"),
-        lat=number(latest(bif, "LOCATION", "LOCATION_LAT")), lon=number(latest(bif, "LOCATION", "LOCATION_LONG")),
+        site=first.get("SITE_ID"), name=latest(bif, "HEADER", "SITE_NAME"), igbp=latest(bif, "IGBP", "IGBP"), lat=lat, lon=lon,
         utc_offset=number(latest(bif, "UTC_OFFSET", "UTC_OFFSET")), product=latest(bif, "ONEFLUX", "PRODUCT_NAME"),
-        sensor=sensor, canopy=canopy, height_span=span, wind_sensor=wind_sensor(varinfo))
+        sensor=sensor, canopy=canopy, height_span=span, height_notes=notes, wind_sensor=wind_sensor(varinfo))
+
+
+def clean(raw):
+    """A copy of the raw columns with values no sensor could give set to NaN."""
+    values = raw.copy()
+    with np.errstate(invalid="ignore"):
+        values[:, 1:][(raw[:, 1:] < LOW) | (raw[:, 1:] > HIGH)] = np.nan
+    return values
+
+
+def count(number_of, thing):
+    return f"{number_of:,} {thing}" + ("" if number_of == 1 else "s")
+
+
+def shown(value):
+    """A number as a person would quote it: 1,000 or 289.2."""
+    return f"{value:,.1f}".removesuffix(".0")
+
+
+def odd_values(name, given, low, high, unit):
+    """What to say about the values of a column that fall outside its range, if anything."""
+    outside = given[(given < low) | (given > high)]
+    if not outside.size:
+        return None
+    values, counts = np.unique(outside, return_counts=True)
+    if counts.max() > outside.size / 2 and values[counts.argmax()] < 0:
+        return f"{name} has {values[counts.argmax()]:g} {count(int(counts.max()), 'time')}. The FLUXNET format marks missing values with -9999, so these count as missing."
+    if outside.size > given.size / 2:
+        return f"{name} reads around {shown(np.median(given))}. The FLUXNET format gives it in {unit}."
+    if outside.size > ODD_SHARE * given.size:
+        return f"Counted as missing: {count(outside.size, 'value')} of {name} outside {low} to {high} {unit}."
+    return None
+
+
+def time_step(stamps):
+    """The usual minutes between records, or None for a single record."""
+    return float(np.median(np.diff(stamps))) / 60e3 if len(stamps) > 1 else None
+
+
+def review(raw, used, unreadable=0):
+    """What a file's columns hold and what the visitor should be told.
+
+    ``errors`` mean no footprint can come from the file, ``warnings`` that one can but
+    needs a second look. ``raw`` has one row per readable time, NaN where a value is
+    missing. ``used`` names the file's columns and ``unreadable`` counts rows dropped
+    for their time.
+    """
+    errors, warnings = [], []
+    good = clean(raw)
+    stamps = np.unique(raw[:, 0])
+    complete = np.isfinite(good[:, 1:]).all(axis=1)
+    usable = np.unique(raw[complete, 0])
+    held = np.isfinite(good[:, 1:]).mean(axis=0)
+    odd = []
+    for slot, (name, (low, high, unit)) in enumerate(zip(used, RANGES), 1):
+        note = odd_values(name, raw[np.isfinite(raw[:, slot]), slot], low, high, unit)
+        if note:
+            odd.append(note)
+    wind = good[np.isfinite(good[:, 3]), 3]
+    if len(wind) >= MIN_RECORDS and wind.max() <= 2 * np.pi + 0.1:
+        errors.append(f"{used[2]} stays below 6.3, so it looks like radians. The FLUXNET format gives it in degrees.")
+    minutes = time_step(stamps)
+    if minutes is not None and minutes >= 1440:
+        days = round(minutes / 1440)
+        errors.append(f"Records are {'a day' if days == 1 else f'{days} days'} apart. A footprint needs half-hourly or hourly data.")
+    if not len(usable):
+        errors += odd
+        empty = [name for slot, name in enumerate(used, 1) if not np.isfinite(raw[:, slot]).any()]
+        if empty:
+            errors.append(f"{' and '.join(empty)} {'has' if len(empty) == 1 else 'have'} no values in this file, and a footprint needs them.")
+        elif not odd:
+            shares = ", ".join(f"{name} {share:.0%}" for name, share in zip(used, held))
+            errors.append(f"Every input has values, but never in the same half-hour. Rows holding each: {shares}.")
+    else:
+        warnings += odd
+        if minutes is not None and minutes not in (30, 60):
+            warnings.append(f"Records are {minutes:g} minutes apart, and footprint models expect averages of 30 to 60 minutes.")
+        if len(raw) > len(stamps):
+            warnings.append(f"Left out: {count(len(raw) - len(stamps), 'row')} repeating an earlier time.")
+        if unreadable:
+            warnings.append(f"Left out: {count(unreadable, 'row')} with no readable TIMESTAMP_START.")
+        if len(usable) < MIN_RECORDS:
+            warnings.append(f"Only {len(usable)} of the records have every input, too few for a climatology.")
+        elif len(usable) < len(stamps) / 2:
+            warnings.append(f"Only {len(usable) / len(stamps):.0%} of records have every input, most of all for lack of {used[int(held.argmin())]}.")
+        sectors = np.histogram(wind, bins=8, range=(0, 360))[0]
+        if len(wind) >= MIN_RECORDS and sectors.max() / len(wind) > MAX_SECTOR_SHARE:
+            warnings.append(f"{used[2]} sits in one 45-degree sector {sectors.max() / len(wind):.0%} of the time. Unless the site has such a wind, check the sensor.")
+    first, last = (str(np.datetime64(int(stamp), "ms"))[:10] for stamp in (usable[[0, -1]] if len(usable) else stamps[[0, -1]]))
+    return dict(total=len(stamps), usable=len(usable), first=first, last=last, minutes=minutes, errors=errors, warnings=warnings,
+                columns=[dict(name=name, share=float(share)) for name, share in zip(used, held)])
 
 
 def rows(raw, latitude, sensor, canopy, zm=None):
@@ -130,7 +250,7 @@ def rows(raw, latitude, sensor, canopy, zm=None):
     ustar, pblh, mo_length, v_sigma, wind_dir. A row that cannot be filled is dropped.
     ``zm`` replaces the height worked out from ``sensor`` and ``canopy``.
     """
-    stamp, ustar, umean, wind_dir, heat, temperature, pressure = raw[np.unique(raw[:, 0], return_index=True)[1]].T
+    stamp, ustar, umean, wind_dir, heat, temperature, pressure = clean(raw)[np.unique(raw[:, 0], return_index=True)[1]].T
     time = stamp.astype("datetime64[ms]")
     year = time.astype("datetime64[Y]")
     height = np.full(len(time), float(zm)) if zm else measurement_height(time, sensor, canopy)

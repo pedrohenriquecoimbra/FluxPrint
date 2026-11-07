@@ -57,11 +57,13 @@ async function exportFile({ id, kind }) {
   postMessage({ type: "file", id, name: path.split("/").pop(), bytes: bytes.buffer }, [bytes.buffer]);
 }
 
-async function describe({ id, bif, varinfo }) {
+async function describe({ id, raw, bif, varinfo, options }) {
   const python = await ready;
+  python.FS.writeFile("/tmp/raw.bin", new Uint8Array(raw));
   python.globals.set("bif_text", bif);
   python.globals.set("varinfo_text", varinfo);
-  const info = JSON.parse(await python.runPythonAsync("tool.describe_file(bif_text, varinfo_text)"));
+  python.globals.set("options_text", JSON.stringify(options));
+  const info = JSON.parse(await python.runPythonAsync("tool.describe_file(bif_text, varinfo_text, options_text)"));
   postMessage({ type: "info", id, info });
 }
 

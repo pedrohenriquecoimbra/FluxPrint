@@ -45,9 +45,11 @@ logger.setLevel(logging.INFO)
 logger.addHandler(EngineLog())
 
 
-def describe_file(bif, varinfo):
-    """What a loaded file's metadata says, as JSON."""
-    return json.dumps(fluxnet.describe(bif, varinfo))
+def describe_file(bif, varinfo, options):
+    """What a loaded file's metadata says and what its columns in /tmp/raw.bin hold, as JSON."""
+    options = json.loads(options)
+    raw = np.fromfile("/tmp/raw.bin", dtype="<f8").reshape(-1, fluxnet.RAW_COLUMNS)
+    return json.dumps(dict(fluxnet.describe(bif, varinfo), review=fluxnet.review(raw, options["used"], options["unreadable"])))
 
 
 def prepare(options):

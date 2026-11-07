@@ -33,6 +33,11 @@
       </label>
       <p class="hint" id="coverage"></p>
       <p class="hint" id="origin" hidden></p>
+      <ul id="checks" class="notes" hidden></ul>
+      <details id="contents" class="hint" hidden>
+        <summary>What the file holds</summary>
+        <dl id="held"></dl>
+      </details>
 
       <div id="loader" class="loader" hidden>
         <p class="hint" id="route"></p>
@@ -46,7 +51,7 @@
           <label>Latitude <input type="number" id="lat" min="-90" max="90" step="any"></label>
           <label>Longitude <input type="number" id="lon" min="-180" max="180" step="any"></label>
         </div>
-        <label>Measurement height z - d, in metres <input type="number" id="zm" min="0.01" step="any"></label>
+        <label>Measurement height z - d, in metres <input type="number" id="zm" min="0.01" max="350" step="any"></label>
         <p class="hint" id="height"></p>
       </div>
 
