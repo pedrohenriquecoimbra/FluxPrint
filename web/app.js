@@ -97,6 +97,8 @@ L.control.scale({ imperial: false }).addTo(map);
 map.createPane("field").style.zIndex = 350;
 map.getPane("field").style.pointerEvents = "none";
 const layers = { icos: L.layerGroup().addTo(map), shuttle: L.layerGroup() };
+// Leaflet shows a string as HTML, and these names come from a visitor's file or a hub's list.
+const plainText = (text) => document.createTextNode(text);
 
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = () => {
@@ -911,7 +913,7 @@ function useArchive(read, info) {
 function placeFileMarker({ id, lat, lon }) {
   fileMarker ??= L.circleMarker([lat, lon], {
     radius: 8, color: "#ffffff", weight: 1.5, fillColor: "#ff9f1c", fillOpacity: 1,
-  }).bindTooltip(`${id} from your file`).addTo(map);
+  }).bindTooltip(plainText(`${id} from your file`)).addTo(map);
   fileMarker.setLatLng([lat, lon]);
 }
 
@@ -1063,7 +1065,7 @@ function addSites(sites, { select, layer, group, fill, country, pick }) {
     const marker = L.circleMarker([site.lat, site.lon], {
       radius: 6, color: "#ffffff", weight: 1.5, fillColor: fill, fillOpacity: 1,
     }).addTo(layer);
-    marker.bindTooltip(`${id} ${site.name}`);
+    marker.bindTooltip(plainText(`${id} ${site.name}`));
     marker.on("click", () => pick(id));
     group[id] = marker;
   }
