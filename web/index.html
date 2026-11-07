@@ -23,6 +23,7 @@
         <select id="site" required><option value="">Choose a site, or click the map</option></select>
       </label>
       <p class="hint" id="coverage"></p>
+      <p class="hint" id="origin" hidden></p>
 
       <div class="row">
         <label>From <input type="date" id="from" required></label>
@@ -33,6 +34,8 @@
         <button type="button" data-days="30">Last 30 days</button>
         <button type="button" data-days="365">Last year</button>
       </div>
+
+      <label>Model <select id="model"></select></label>
 
       <div class="row">
         <label>Hours
@@ -84,7 +87,8 @@
       <ul id="citations" class="citations"></ul>
     </section>
 
-    <footer id="footer"></footer>
+    <footer>Data from the <a href="https://data.icos-cp.eu/portal/" target="_blank" rel="noopener">ICOS Carbon Portal</a>,
+      <a href="https://data.icos-cp.eu/licence" target="_blank" rel="noopener">CC BY 4.0</a>. <span id="copied"></span></footer>
   </aside>
 
   <div class="stage">

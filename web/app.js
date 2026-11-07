@@ -9,7 +9,23 @@ const FRAME_TIME = 120;         // ms; the shortest time a half-hour stays on sc
 const LINES = { 0.5: "#ffffff", 0.8: "#ffe066", 0.9: "#ff9f1c" };
 // Light to dark along a yellow to red ramp, readable over aerial imagery.
 const RAMP = [[255, 240, 120], [255, 190, 60], [245, 120, 40], [215, 50, 40], [140, 10, 60]];
-const KLJUN = "Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015). A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP). Geosci. Model Dev. 8, 3695-3713. https://doi.org/10.5194/gmd-8-3695-2015";
+// `reach`: how far to draw, in multiples of z - d. At four sites in October 2026 the 90% contour reached 47 to 91 with
+// Kljun and 111 to 338 with Hsieh.
+const MODELS = {
+  kljun2015: {
+    name: "Kljun et al. 2015",
+    reach: 75,
+    citations: ["Kljun, N., Calanca, P., Rotach, M. W., Schmid, H. P. (2015). A simple two-dimensional parameterisation for Flux Footprint Prediction (FFP). Geosci. Model Dev. 8, 3695-3713. https://doi.org/10.5194/gmd-8-3695-2015"],
+  },
+  hsieh2000: {
+    name: "Hsieh et al. 2000",
+    reach: 200,
+    citations: [
+      "Hsieh, C.-I., Katul, G., Chi, T. (2000). An approximate analytical model for footprint estimation of scalar fluxes in thermally stratified atmospheric flows. Adv. Water Resour. 23, 765-772. https://doi.org/10.1016/S0309-1708(99)00042-1",
+      "Detto, M., Montaldo, N., Albertson, J. D., Mancini, M., Katul, G. (2006). Soil moisture and vegetation controls on evapotranspiration in a heterogeneous Mediterranean ecosystem on Sardinia, Italy. Water Resour. Res. 42, W08419. https://doi.org/10.1029/2005WR004693",
+    ],
+  },
+};
 
 let catalogue;
 let siteId = "";
@@ -199,7 +215,7 @@ function medianHeight(rows) {
 
 // Wide enough for a tall tower's 90% contour, kept to one of the choices on offer.
 function automaticHalf(rows) {
-  const wanted = 75 * medianHeight(rows);
+  const wanted = MODELS[$("model").value].reach * medianHeight(rows);
   return [250, 500, 1000, 2000, 4000].find((half) => half >= wanted) ?? 4000;
 }
 
@@ -288,6 +304,23 @@ function describeCoverage(site) {
   return `${first} to ${last}, ${total.toLocaleString("en")} half-hours. ${site.ecosystem ?? ""}`;
 }
 
+function externalLink(text, url) {
+  const link = document.createElement("a");
+  link.href = url.replace("http://", "https://");
+  link.target = "_blank";     // a click must not lose the footprint on the map
+  link.rel = "noopener";
+  link.textContent = text;
+  return link;
+}
+
+function showOrigin(site) {
+  const links = [["station page", site?.url], ...(site?.sources ?? []).map((source) => [`${source.kind} data`, source.doi])]
+    .filter(([, url]) => url)
+    .map(([text, url]) => externalLink(text, url));
+  $("origin").replaceChildren("ICOS data: ", ...links.flatMap((link, index) => (index ? [", ", link] : [link])));
+  $("origin").hidden = !links.length;
+}
+
 function setDates(days) {
   const site = catalogue.sites[siteId];
   if (!site) return;
@@ -308,6 +341,7 @@ function selectSite(id, { keepDates = false } = {}) {
     marker.setStyle({ fillColor: key === id ? "#ff9f1c" : "#0b6e4f", radius: key === id ? 8 : 6 });
   });
   const site = catalogue.sites[id];
+  showOrigin(site);
   if (!site) {
     $("coverage").textContent = "";
     return;
@@ -325,7 +359,7 @@ function selectSite(id, { keepDates = false } = {}) {
 }
 
 function writeState(from, to, at) {
-  const state = new URLSearchParams({ site: siteId, from, to, hours: $("hours").value, area: $("half").value });
+  const state = new URLSearchParams({ site: siteId, from, to, hours: $("hours").value, area: $("half").value, model: $("model").value });
   if (at) state.set("at", at);
   history.replaceState(null, "", `#${state}`);
 }
@@ -342,11 +376,15 @@ function compass(degrees) {
   return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(degrees / 45) % 8];
 }
 
+const roughnessRow = (summary) => (summary.z0 == null ? [] : [["Roughness length z0, estimated", `${summary.z0.toFixed(2)} m`]]);
+
 function footprintRows(summary) {
   return [
+    ["Model", MODELS[summary.model].name],
     ["Peak", `${formatDistance(summary.peak_m)} ${compass(summary.peak_bearing)}`],
     ...summary.contours.map((c) => [`${Math.round(c.fraction * 100)}% reach, area`, `${formatDistance(c.reach_m)}, ${formatArea(c.area_ha)}`]),
     ["Measurement height z - d", `${summary.zm.toFixed(1)} m`],
+    ...roughnessRow(summary),
     ["Flux inside the map area", `${Math.min(Math.round(summary.captured * 100), 100)}%`],
   ];
 }
@@ -381,7 +419,7 @@ function showResults({ site, from, to, title, rows, notes, summary }) {
   }
   fillList("notes", shown);
   fillList("citations", [
-    ...sources.map((source) => source.citation).filter(Boolean), KLJUN,
+    ...sources.map((source) => source.citation).filter(Boolean), ...MODELS[summary.model].citations,
     `FluxPrint ${summary.version}. https://github.com/pedrohenriquecoimbra/FluxPrint`,
   ]);
   $("export").hidden = !summary.used;
@@ -407,15 +445,26 @@ function clearResults() {
 
 function runOptions(site, half, from, to) {
   const sources = sourcesFor(site, from, to);
+  const model = $("model").value;
   return {
-    half, lat: site.lat, lon: site.lon,
+    half, model, lat: site.lat, lon: site.lon,
     provenance: {
       site: siteId, site_name: site.name, period_start: from, period_end: to, hours: $("hours").value,
+      model, model_citation: MODELS[model].citations.join(" | "),
       data_citation: sources.map((source) => source.citation).join(" | "),
       wind_direction: sources.map((source) => (source.wind ? `sensor ${source.wind.sensor}` : "EC")).join(" | "),
       made_with: "https://github.com/pedrohenriquecoimbra/FluxPrint web tool",
     },
   };
+}
+
+function periodNotes(summary) {
+  const notes = [];
+  if (summary.used < 10) notes.push("Very few half-hours: this is not a climatology.");
+  if (summary.used < summary.records / 2 && summary.reason) {
+    notes.push(`Only ${Math.round((100 * summary.used) / summary.records)}% of the half-hours passed the model's checks. Most common reason: ${summary.reason}`);
+  }
+  return notes;
 }
 
 async function runFootprint() {
@@ -441,17 +490,17 @@ async function runFootprint() {
     showBusy(false);
     const { summary } = result;
     if (!summary.used) {
-      showMessage(`None of the ${times.length.toLocaleString("en")} half-hours passed the model's validity checks.`);
+      showMessage(`None of the ${times.length.toLocaleString("en")} half-hours passed the model's validity checks. Most common reason: ${summary.reason ?? "unknown"}`);
       return;
     }
-    current = { site: siteId, from, to, label: `${from}_${to}`, summary };
+    current = { site: siteId, from, to, label: `${from}_${to}_${summary.model}`, summary };
     drawFootprint(site, result);
     fitFootprint(site, summary);
     showResults({
       site, from, to, summary,
       title: `${site.name}, ${from === to ? from : `${from} to ${to}`}`,
       rows: [["Half-hours used", `${summary.used.toLocaleString("en")} of ${summary.records.toLocaleString("en")}`], ...footprintRows(summary)],
-      notes: summary.used < 10 ? ["Very few half-hours: this is not a climatology."] : [],
+      notes: periodNotes(summary),
     });
   } catch (error) {
     finishWithError(error.message);
@@ -498,7 +547,7 @@ async function showStep(stepper, index) {
   ];
   const view = { site, from: when, to: when, summary, title: `${site.name}, ${when}` };
   if (summary.used) {
-    current = { site: stepper.site, from: when, to: when, label: when.replace(" ", "T").replace(":", ""), summary };
+    current = { site: stepper.site, from: when, to: when, label: `${when.replace(" ", "T").replace(":", "")}_${summary.model}`, summary };
     drawFootprint(site, result);
     showResults({ ...view, rows: [...weather, ...footprintRows(summary)], notes: [] });
   } else {
@@ -507,7 +556,7 @@ async function showStep(stepper, index) {
     $("when").textContent = `${describeStep(stepper, index)} · no footprint`;
     showResults({
       ...view,
-      rows: [...weather, ["Measurement height z - d", `${height.toFixed(1)} m`]],
+      rows: [...weather, ["Measurement height z - d", `${height.toFixed(1)} m`], ...roughnessRow(summary)],
       notes: [`No footprint for this half-hour: ${summary.reason ?? "the model rejected it."}`],
     });
   }
@@ -618,7 +667,8 @@ function contoursAsGeoJson() {
     },
   })));
   const citation = sourcesFor(site, current.from, current.to).map((source) => source.citation).join(" | ");
-  return JSON.stringify({ type: "FeatureCollection", citation, features });
+  const { model } = current.summary;
+  return JSON.stringify({ type: "FeatureCollection", citation, model, model_citation: MODELS[model].citations.join(" | "), features });
 }
 
 async function download(kind, button) {
@@ -680,6 +730,7 @@ function restoreState() {
   selectSite(id, { keepDates: true });
   if (state.get("hours")) $("hours").value = state.get("hours");
   if (state.get("area")) $("half").value = state.get("area");
+  if (MODELS[state.get("model")]) $("model").value = state.get("model");
   if (state.get("from") && state.get("to")) {
     $("from").value = state.get("from");
     $("to").value = state.get("to");
@@ -723,11 +774,12 @@ $("cancel").addEventListener("click", () => {
   startWorker();
 });
 
+Object.entries(MODELS).forEach(([id, model]) => $("model").add(new Option(model.name, id)));
+
 try {
   catalogue = await (await fetch("data/sites.json")).json();
   fillSites();
-  const count = Object.keys(catalogue.sites).length;
-  $("footer").textContent = `${count} ICOS sites, data read on ${catalogue.built}. ICOS data: CC BY 4.0.`;
+  $("copied").textContent = `${Object.keys(catalogue.sites).length} sites, copied on ${catalogue.built}.`;
   restoreState();
 } catch (error) {
   showMessage(`Could not load the site list: ${error.message}`);

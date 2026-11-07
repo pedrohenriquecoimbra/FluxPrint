@@ -9,11 +9,13 @@ import logging
 import os
 import warnings
 import zipfile
+from collections import Counter
 
 import numpy as np
 from js import fpProgress
 
 from fluxprint import __version__
+from fluxprint.micrometeorology import compute_z0
 from fluxprint.model import get_model
 
 COLUMNS = 7     # zm, umean, ustar, pblh, mo_length, v_sigma, wind_dir
@@ -22,17 +24,18 @@ FRACTIONS = (0.5, 0.8, 0.9)
 
 footprint = None
 provenance = {}
-rejections = []     # the engine's reasons for skipping records, in order
+rejections = Counter()      # the engine's reasons for skipping records
 
 
 class EngineLog(logging.Handler):
-    """Forwards the engine's progress to the page and keeps its rejections."""
+    """Forwards the engine's progress to the page and counts its rejections."""
 
     def emit(self, record):
+        message = record.getMessage()
         if str(record.msg).startswith("Calculating footprint"):
             fpProgress(int(record.args[0]), int(record.args[1]))
-        elif record.getMessage().startswith("Error("):
-            rejections.append(record.getMessage().splitlines()[1].strip())
+        elif message.startswith("Error(") and not message.startswith("Error(0016)"):    # 0016 only says "skipped"
+            rejections[message.splitlines()[1].strip()] += 1
 
 
 logger = logging.getLogger("fluxprint")
@@ -47,17 +50,25 @@ def run(options):
     rows = np.fromfile("/tmp/rows.bin", dtype="<f4").reshape(-1, COLUMNS).astype(float)
     zm, umean, ustar, pblh, mo_length, v_sigma, wind_dir = rows.T
     half = float(options["half"])
+    model = options["model"]
+    provenance = options["provenance"]
     rejections.clear()
     warnings.simplefilter("ignore")
-    footprint = get_model("kljun2015")(
-        zm=zm, umean=umean, ustar=ustar, pblh=pblh, mo_length=mo_length, v_sigma=v_sigma, wind_dir=wind_dir,
+    profile = dict(umean=umean)
+    if model == "hsieh2000":    # it has no umean mode, so it gets z0 as calculate_footprint would estimate it
+        profile = dict(z0=compute_z0(umean, ustar, zm, ol=mo_length))
+        provenance["z0"] = "estimated per half-hour from umean, ustar, zm and mo_length"
+    footprint = get_model(model)(
+        zm=zm, ustar=ustar, pblh=pblh, mo_length=mo_length, v_sigma=v_sigma, wind_dir=wind_dir, **profile,
         dx=2 * half / CELLS, domain=[-half, half, -half, half], verbosity=2, pulse=max(1, len(rows) // 50),
         tower=(options["lon"], options["lat"]), tower_crs="EPSG:4326")
-    provenance = options["provenance"]
-    used = int(footprint.n)
-    if used == 0:
-        return json.dumps(dict(used=0, records=len(rows), version=__version__,
-                               reason=rejections[0] if rejections else None))
+    summary = dict(used=int(footprint.n), records=len(rows), version=__version__, model=model,
+                   reason=rejections.most_common(1)[0][0] if rejections else None)
+    if "z0" in profile:
+        z0 = float(np.nanmedian(profile["z0"]))
+        summary["z0"] = z0 if np.isfinite(z0) else None     # JSON has no NaN
+    if not summary["used"]:
+        return json.dumps(summary)
 
     # North-up rows, west to east, the way a canvas draws them.
     field = np.asarray(footprint.f, dtype="float64")
@@ -83,8 +94,7 @@ def run(options):
             lines=[np.round(v, 1).tolist() for v in contour["vertices"]]))
     peak_x, peak_y = (float(v) for v in footprint.peak_xy())
     return json.dumps(dict(
-        used=used, records=len(rows), version=__version__, captured=float(footprint.total()),
-        size=[field.shape[1], field.shape[0]],
+        summary, captured=float(footprint.total()), size=[field.shape[1], field.shape[0]],
         half=half, peak_m=float(np.hypot(peak_x, peak_y)), peak_bearing=float(np.degrees(np.arctan2(peak_x, peak_y)) % 360),
         peak_density=float(np.nanmax(field)), zm=float(np.median(zm)), contours=contours))
 

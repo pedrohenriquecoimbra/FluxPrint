@@ -3,8 +3,9 @@ name: Publish web tool
 # Reads the ICOS zarr stores, builds the web tool into _site and serves it with
 # GitHub Pages. One-time setup: Settings > Pages > Source: GitHub Actions.
 #
-# The weekly run keeps the near-real-time data fresh. If it ever stops, the page
-# keeps working and shows the dates it was last built with.
+# The daily run follows ICOS, which rebuilds the near-real-time store at about
+# 04:00 UTC. If it ever stops, the page keeps working and shows the dates it was
+# last built with. GitHub pauses schedules after 60 days without repository activity.
 
 on:
   push:
@@ -14,7 +15,7 @@ on:
       - "scripts/build_site.py"
       - ".github/workflows/pages.yml"
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:

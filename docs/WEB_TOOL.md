@@ -45,13 +45,43 @@ While stepping:
   example `ustar (friction velocity) must be >=0.1`.
 - Downloads give the half-hour on the map, and a shared link keeps it (`at=`).
 
+## Models
+
+The page offers the two models `fluxprint` registers: `kljun2015`, the default, and
+`hsieh2000`. Results, the Cite list, downloads and their file names all name the
+model, and a shared link keeps it (`model=`).
+
+`hsieh2000` has no `umean` mode, so it needs `z0`, which ICOS does not provide.
+`tool.py` estimates it for each half-hour with `compute_z0`, the same estimate
+`calculate_footprint` uses, from `umean`, `ustar`, `zm` and `mo_length`. The package
+marks that estimate as not yet validated.
+
+The estimate decides how much of a period survives, because the checks reject
+`zm <= 12.5 * z0`. `kljun2015` with `umean` never meets that check. For 4 October
+to 1 November 2026 (FR-Fon to 2 November):
+
+| Site | Median `z - d` | Median `z0` | Used, Kljun | Used, Hsieh | 90% reach, Kljun | 90% reach, Hsieh |
+| --- | --- | --- | --- | --- | --- | --- |
+| FR-Fon, forest | 20.4 m | 3.79 m | 1,297 of 1,392 | 73 | 959 m | 2,263 m |
+| FI-Hyy, forest | 11.2 m | 1.57 m | 1,319 of 1,364 | 119 | 538 m | 2,805 m |
+| FR-Gri, crop | 0.9 m | 0.01 m | 1,026 of 1,355 | 867 | 78 m | 290 m |
+| SE-Deg, mire | 2.9 m | 0.04 m | 1,197 of 1,367 | 1,168 | 255 m | 926 m |
+
+- At forests only 5 to 9% of half-hours pass, and those are the ones with the lowest
+  estimated `z0`, so the result is not a representative climatology. When fewer than
+  half pass, the page says so and gives the most common reason.
+- `hsieh2000` has no `rslayer` option, so the page cannot relax this check. Changing
+  that needs a `fluxprint` release.
+- Hsieh reaches 2 to 5 times further, so the automatic map area is wider for it
+  (`reach` in `app.js`).
+
 ## Files
 
 | Path | What it is |
 | --- | --- |
 | `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
 | `scripts/build_site.py` | Reads ICOS zarr and fetches the wheels into `_site/` (not in git) |
-| `.github/workflows/pages.yml` | Builds on push and weekly, deploys to GitHub Pages |
+| `.github/workflows/pages.yml` | Builds on push and daily, deploys to GitHub Pages |
 
 Run it locally:
 
@@ -80,8 +110,21 @@ float32 file per site and year.
 
 If ICOS Carbon Portal added `Access-Control-Allow-Origin: *`, the page could read
 zarr directly and the baked files could go. Plain GET requests need nothing else.
+Only ICOS can add it, because the header has to come from their server.
+
+It would not make the data fresher. ICOS rebuilds `icos-eco-nrt.zarr` once a night,
+at about 04:00 UTC, and the page's build runs at 05:17 UTC. FR-Fon's object arrives
+at about 07:30 UTC with data up to the day before, so the page trails by about two
+days when ETC keeps up. That object had 12 new versions in the 19 days to 3 November
+2026, and none in the 4 days after that. The whole build took about 2 minutes on the
+laptop.
 
 ## Data
+
+The footer links the ICOS Carbon Portal and its licence. Picking a site shows its
+station page and a link for each of its sources. The near-real-time link is that
+site's object (`source_doi`), and the released link is the collection all sites
+share (`collection_doi`).
 
 Near-real-time data carries on from where released data ends. FI-Sod, FR-Lam and
 IT-SR2 have no usable rows (FR-Lam has no `PBLH` at all). Released-only sites are
@@ -170,6 +213,14 @@ expect 6 to 14 ms.
   half-hour. NetCDF, GeoTIFF and Shapefile from a period were also reopened and
   read correctly in the earlier browser test.
 - `build_site.py` in a clean environment with only the workflow's packages.
+- `hsieh2000` at FR-Fon, 4 October to 2 November 2026: records used, median `z0`,
+  peak, reach and area shown by the page match a separate native run on the same
+  baked file. `kljun2015` gives the same numbers as before the model choice.
+- `hsieh2000` while stepping at FR-Gri: a shared link with `model=` and `at=`, a
+  rejected half-hour, and all four downloads, each naming the model and its citation.
+  The timeline closes when the model changes. A day where nothing passes gives the
+  reason.
+- All 77 ICOS links on the page open.
 
 Not tested: the workflow on GitHub itself, and other browsers.
 
@@ -182,7 +233,6 @@ load only when their button is clicked (69 MB with all of them).
   can cancel. Splitting across workers is possible, because climatologies are
   sums, but is not built.
 - WebAssembly is 32-bit, so the grid stays at 401 x 401 whatever the map area.
-- `hsieh2000` needs `z0`, so the page offers `kljun2015` only.
 - GitHub stops scheduled workflows after 60 days without repository activity. The
   page keeps working and shows the dates it was built with.
 - Dates and times are each site's local standard time, and a half-hour is named
