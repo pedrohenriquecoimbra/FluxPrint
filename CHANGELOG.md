@@ -13,6 +13,8 @@ and the project aims to follow [Semantic Versioning](https://semver.org/)
   divided `ustar` by the signed Coriolis parameter, so the models rejected
   every record there (`pblh <= 10`). It now uses `|f|`, with the same `f_min`
   floor near the equator. Heights north of the equator do not change.
+- The `kljun2015` `model_citation` gives the paper's title correctly: "A simple
+  two-dimensional parameterisation", not "The simple".
 
 ## [0.4.0] - 2026-09-09
 

@@ -25,6 +25,7 @@ def test_model_output_carries_provenance():
     assert fp.attrs["model"] == "kljun2015"
     assert fp.attrs["model_doi"] == "10.5194/gmd-8-3695-2015"
     assert "Kljun" in fp.attrs["model_citation"]
+    assert "A simple two-dimensional" in fp.attrs["model_citation"]
     assert fp.attrs["fluxprint_version"]
     assert fp.attrs["wind_profile_input"] == "z0"
     assert "fluxprint" in fp.attrs["history"]

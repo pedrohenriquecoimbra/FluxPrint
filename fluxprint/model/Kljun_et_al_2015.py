@@ -407,7 +407,7 @@ def calc_footprint_1d(zm=None, z0=None, umean=None, pblh=None, mo_length=None, v
 #: Provenance stamped into every footprint this model produces.
 MODEL_META = {
     "model_citation": ("Kljun, N., P. Calanca, M.W. Rotach, H.P. Schmid "
-                       "(2015): The simple two-dimensional parameterisation "
+                       "(2015): A simple two-dimensional parameterisation "
                        "for Flux Footprint Prediction (FFP). Geosci. Model "
                        "Dev. 8, 3695-3713."),
     "model_doi": "10.5194/gmd-8-3695-2015",
