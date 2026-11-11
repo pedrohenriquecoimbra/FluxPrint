@@ -79,6 +79,17 @@ will move them into the already-declared extras (`fluxprint[netcdf]`,
 `[tiff]`, `[crs]`, `[shapefile]`; `[viz]` adds `folium` for interactive
 maps, `[all]` installs everything).
 
+### Web tool
+
+```bash
+fluxprint gui
+```
+
+opens the [web tool](docs/WEB_TOOL.md) in your browser, served from your
+computer. The footprints are still computed in the browser; the site data and
+the wheels the page runs are fetched from the published page on first use.
+`--port`, `--host` and `--no-browser` change how it is served.
+
 ---
 
 ## Quickstart

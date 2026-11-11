@@ -63,7 +63,7 @@ for them: it could list a model the page cannot run. If that fails, the build st
 and the page online stays. `import fluxprint` needs nothing the workflows do not
 already install.
 
-So adding a model takes no edit in `web/`:
+So adding a model takes no edit in `fluxprint/web/`:
 
 1. Register it with `footprint_model`, in a module `fluxprint/model/__init__.py` imports.
 2. Release `fluxprint`.
@@ -307,8 +307,8 @@ Which of the two is right at FR-Pue is unknown, and it is worth asking the site 
 
 | Path | What it is |
 | --- | --- |
-| `web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
-| `web/archive.js`, `web/fluxnet.py` | Reading a file, and turning it into the page's rows |
+| `fluxprint/web/` | The page: `index.html`, `app.js`, `worker.js`, `tool.py`, `style.css` |
+| `fluxprint/web/archive.js`, `fluxprint/web/fluxnet.py` | Reading a file, and turning it into the page's rows |
 | `tests/test_web_fluxnet.py` | Metadata, checks and estimates, run natively with the package's tests |
 | `tests/test_web_models.py` | The model list, from a release to `data/models.json`, and what `tool.py` passes a model |
 | `tests/file_cases.py` | Makes 82 broken and odd files and a check to run them in a browser |
@@ -496,7 +496,7 @@ expect 6 to 14 ms.
   default. Before `rslayer`, the same comparison gave 1,297 and 73.
 - The list is the same from 0.4.0, from 0.4.1 and from a wheel that declares `reach` and
   `needs_z0`. FR-Fon gives the same numbers in the page on 0.4.1 and on that wheel.
-- A release with two made-up models, built as a wheel, with `web/` untouched: both are
+- A release with two made-up models, built as a wheel, with `fluxprint/web/` untouched: both are
   listed after the current two, and a link keeps them. The one declaring `reach` and
   citations got `umean`, a 2 km area at FR-Fon, and its citations in Cite and the
   GeoJSON. The one declaring only `needs_z0` got `z0`, the default `reach`, its registry

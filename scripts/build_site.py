@@ -27,7 +27,7 @@ The FLUXNET Shuttle's sites are listed in data/shuttle.json, from the three hubs
 Shuttle reads. Only the list is copied: the archives stay at their hubs.
 
 The page's models are listed in data/models.json, read from the wheels the page runs.
-So a model released in the version named in PACKAGES needs no edit in web/.
+So a model released in the version named in PACKAGES needs no edit in fluxprint/web/.
 """
 import csv
 import io
@@ -45,7 +45,7 @@ import requests
 import xarray as xr
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+WEB = ROOT / "fluxprint" / "web"
 OUT = ROOT / "_site"
 NRT = "https://zarr.icos-cp.eu/icos-eco-nrt.zarr"
 RELEASED = "https://zarr.icos-cp.eu/icos-fluxnet.zarr"

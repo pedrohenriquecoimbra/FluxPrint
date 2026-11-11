@@ -7,7 +7,7 @@ import pytest
 
 from fluxprint.micrometeorology import compute_mo_length
 
-PAGE_MODULE = Path(__file__).parents[1] / "web" / "fluxnet.py"
+PAGE_MODULE = Path(__file__).parents[1] / "fluxprint" / "web" / "fluxnet.py"
 if not PAGE_MODULE.exists():    # publish.yml tests the built wheel with a copy of tests/ alone
     pytest.skip("the web page is not next to these tests", allow_module_level=True)
 

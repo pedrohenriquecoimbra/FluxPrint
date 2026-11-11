@@ -39,7 +39,7 @@ A model is a keyword-only callable returning one local-frame `Footprint`
    `exceptions.check_ffp_inputs`);
 5. declare `needs_z0=True` if it has no `umean` mode, and its `reach` if you
    know it. The web page lists the model once a release that has it is named in
-   `PACKAGES` in `scripts/build_site.py`, with no edit in `web/`
+   `PACKAGES` in `scripts/build_site.py`, with no edit in `fluxprint/web/`
    (see [`docs/WEB_TOOL.md`](docs/WEB_TOOL.md#models)).
 
 ## Cutting a release

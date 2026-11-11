@@ -1,4 +1,4 @@
-"""The web page's list of models: what the wheel it runs registers, with no edit in web/."""
+"""The web page's list of models: what the wheel it runs registers, with no edit in fluxprint/web/."""
 import importlib
 import importlib.util
 import json
@@ -146,7 +146,7 @@ def test_the_metadata_agrees_with_what_the_page_keeps():
         assert get_model(name).needs_z0 == own.get("needs_z0", False)
 
 
-@pytest.mark.parametrize("path", sorted((ROOT / "web").glob("*.*")), ids=lambda path: path.name)
+@pytest.mark.parametrize("path", sorted((ROOT / "fluxprint" / "web").glob("*.*")), ids=lambda path: path.name)
 def test_the_page_names_no_model(path):
     text = path.read_text(encoding="utf-8")
     assert not any(model in text for model in PAGE)
@@ -154,11 +154,11 @@ def test_the_page_names_no_model(path):
 
 @pytest.fixture
 def tool(monkeypatch):
-    """web/tool.py outside the browser, with its one browser import stubbed."""
+    """fluxprint/web/tool.py outside the browser, with its one browser import stubbed."""
     logger = logging.getLogger("fluxprint")
     handlers, level = list(logger.handlers), logger.level
     monkeypatch.setitem(sys.modules, "js", types.SimpleNamespace(fpProgress=lambda done, total: None))
-    monkeypatch.syspath_prepend(str(ROOT / "web"))
+    monkeypatch.syspath_prepend(str(ROOT / "fluxprint" / "web"))
     yield importlib.import_module("tool")
     logger.handlers[:] = handlers
     logger.setLevel(level)

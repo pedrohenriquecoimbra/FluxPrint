@@ -52,6 +52,9 @@ classifiers = [
     "Topic :: Other/Nonlisted Topic",
 ]
 
+[project.scripts]
+fluxprint = "fluxprint.cli:main"
+
 [project.optional-dependencies]
 # The names below are what the package's ImportError hints advertise. Their
 # packages are (still) also in `dependencies`; a future release will drop them
@@ -79,6 +82,8 @@ packages.find = { where = ["."], include = ["fluxprint*"], exclude = ["sample*",
 [tool.setuptools.package-data]
 # Ship the vendored reference code's license notice inside the package too.
 "fluxprint.model.Kljun_et_al_2015_original" = ["license.txt"]
+# The web tool's page, served by `fluxprint gui`.
+"fluxprint" = ["web/*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "fluxprint.version.version" }
